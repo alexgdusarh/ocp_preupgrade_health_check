@@ -971,8 +971,6 @@ at a real cluster.
 │   ├── 85a_acm_wait_msa_secret.yml       # included per cluster from 85
 │   ├── 87_odf.yml                        # OpenShift Data Foundation (ODF) + Ceph/OSD checks
 │   ├── 88_cluster_operators_installed.yml  # -> outputs/<cluster>/operators/cluster_operators_installed.json + .md
-│   ├── 88_redhat_operators.yml           # Red Hat catalog cross-reference (not included by playbook.yml)
-│   ├── 88a_redhat_operators_render_minor.yml  # included per OCP minor from 88_redhat_operators
 │   ├── 89_catalog_opm_render.yml         # per-catalog opm render -> outputs/<cluster>/operators/<catalog>_<tag>.json
 │   ├── 89a_catalog_opm_render_one.yml    # included per catalog from 89
 │   ├── 89b_catalog_mirror_check.yml      # IDMS/ICSP/ITMS checks -> outputs/<cluster>/operators/catalog_mirror_check.json
