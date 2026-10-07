@@ -470,10 +470,18 @@ data dump for downstream tooling, in exactly this shape and no other keys:
 ```json
 {
   "cluster_name": "example-01-abcde",
-  "cluster": { "current": "4.18.14", "target": "4.20.32", "channel": "EUS" },
+  "cluster": {
+    "current": "4.18.14",
+    "target": "4.20.32",
+    "channel": "EUS"
+  },
   "operators": [
-    { "name": "cluster-logging", "channel": "stable-6.2", "version": "6.2.0",
-      "catalog": "registry.redhat.io/redhat/redhat-operator-index:v4.20" }
+    {
+      "name": "cluster-logging",
+      "channel": "stable-6.2",
+      "version": "6.2.0",
+      "catalog": "registry.redhat.io/redhat/redhat-operator-index:v4.20"
+    }
   ]
 }
 ```
@@ -521,8 +529,14 @@ filtered to just this cluster's installed packages - to its own
 
 ```json
 [
-  { "package": "cluster-logging", "channel": "stable-6.2",
-    "entries": ["cluster-logging.v6.2.0", "cluster-logging.v6.1.0"] }
+  {
+    "package": "cluster-logging",
+    "channel": "stable-6.2",
+    "entries": [
+      "cluster-logging.v6.2.0",
+      "cluster-logging.v6.1.0"
+    ]
+  }
 ]
 ```
 
@@ -652,17 +666,33 @@ What the check reports:
   ```json
   {
     "cluster_name": "example-01-abcde",
-    "cluster": {"current": "4.18.14", "target": "4.20.34", "channel": "eus",
-                "ocp_path": ["4.18", "4.19", "4.20"],
-                "upgrade_path": ["4.18.14", "4.18.30", "4.19.33", "4.20.34"]},
+    "cluster": {
+      "current": "4.18.14",
+      "target": "4.20.34",
+      "channel": "eus",
+      "ocp_path": ["4.18", "4.19", "4.20"],
+      "upgrade_path": ["4.18.14", "4.18.30", "4.19.33", "4.20.34"]
+    },
     "operators": [
       {
         "pull_image": "mirror.local:5000/olm/redhat/redhat-operator-index:v4.18",
         "packages": [
-          {"name": "devworkspace-operator", "channel": "fast", "version": "0.43.0",
-           "max_ocp_version": "", "main": false, "required_by": ["web-terminal"]},
-          {"name": "web-terminal", "channel": "fast", "version": "1.13.1",
-           "max_ocp_version": "", "main": true, "required_by": []}
+          {
+            "name": "devworkspace-operator",
+            "channel": "fast",
+            "version": "0.43.0",
+            "max_ocp_version": "",
+            "main": false,
+            "required_by": ["web-terminal"]
+          },
+          {
+            "name": "web-terminal",
+            "channel": "fast",
+            "version": "1.13.1",
+            "max_ocp_version": "",
+            "main": true,
+            "required_by": []
+          }
         ]
       }
     ]
@@ -912,35 +942,59 @@ at a real cluster.
 
 ## Project layout
 
-```
-playbook.yml                    entry point
-group_vars/all.yml               every tunable, with comments
-inventory/hosts.yml               localhost - this talks to the API, not SSH
-tasks/00_facts.yml                 connection setup, findings collector
-tasks/10_clusterversion.yml
-tasks/11_upgrade_path.yml          upgrade_channel resolution (EUS-aware) + Cincinnati graph path
-tasks/15_etcd_health.yml
-tasks/20_nodes_mcp_matrix.yml
-tasks/30_clusteroperators.yml
-tasks/40_machineconfigpools.yml
-tasks/50_machinesets.yml
-tasks/60_deprecated_apis.yml
-tasks/65_stuck_finalizers.yml
-tasks/65a_finalizer_scan_one.yml     included per CRD kind from 65 (keeps only objects being deleted)
-tasks/70_portworx.yml
-tasks/80_openshift_virtualization.yml
-tasks/85_acm.yml                   ACM hub health, managed-cluster inventory, cascade
-tasks/85a_acm_wait_msa_secret.yml    included per-cluster from 85_acm.yml
-tasks/87_odf.yml                   OpenShift Data Foundation (ODF) + Ceph/OSD checks
-tasks/88_cluster_operators_installed.yml   writes outputs/<cluster>/operators/cluster_operators_installed.json + .md
-tasks/89_catalog_opm_render.yml    per-catalog opm render -> outputs/<cluster>/operators/<catalog>_<tag>.json
-tasks/89a_catalog_opm_render_one.yml included per catalog from 89
-tasks/89b_catalog_mirror_check.yml IDMS/ICSP/ITMS vs default catalogs and InstallPlans -> outputs/<cluster>/operators/catalog_mirror_check.json
-tasks/90_render_report.yml         renders templates, fails on CRITICAL
-filter_plugins/ocp_health_filters.py   all the report-building logic (unit tested)
-templates/report.md.j2 / report.html.j2 / report_summary.html.j2
-extras/acm-policy-managed-serviceaccount-rbac.yaml   reference ACM Policy (see ACM notes) - not auto-applied
-tests/                             fixtures + offline unit/render tests
+```text
+.
+├── playbook.yml                          # entry point
+├── ansible.cfg
+├── inventory/hosts.yml                   # localhost - this talks to the API, not SSH
+├── group_vars/all.yml                    # every tunable, with comments
+├── requirements.txt                      # Python: ansible-core, Jinja2, kubernetes, ...
+├── requirements.yml                      # collections
+├── filter_plugins/
+│   └── ocp_health_filters.py             # all the report-building logic (unit tested)
+├── tasks/
+│   ├── 00_facts.yml                      # connection setup, findings collector
+│   ├── 01_oauth_login.yml                # password method: username/password -> OAuth token
+│   ├── 10_clusterversion.yml
+│   ├── 11_upgrade_path.yml               # upgrade_channel resolution (EUS-aware) + Cincinnati graph path
+│   ├── 15_etcd_health.yml
+│   ├── 20_nodes_mcp_matrix.yml
+│   ├── 30_clusteroperators.yml
+│   ├── 40_machineconfigpools.yml
+│   ├── 50_machinesets.yml
+│   ├── 60_deprecated_apis.yml
+│   ├── 65_stuck_finalizers.yml
+│   ├── 65a_finalizer_scan_one.yml        # included per CRD kind from 65 (keeps only objects being deleted)
+│   ├── 70_portworx.yml
+│   ├── 80_openshift_virtualization.yml
+│   ├── 85_acm.yml                        # ACM hub health, managed-cluster inventory, cascade
+│   ├── 85a_acm_wait_msa_secret.yml       # included per cluster from 85
+│   ├── 87_odf.yml                        # OpenShift Data Foundation (ODF) + Ceph/OSD checks
+│   ├── 88_cluster_operators_installed.yml  # -> outputs/<cluster>/operators/cluster_operators_installed.json + .md
+│   ├── 88_redhat_operators.yml           # Red Hat catalog cross-reference (not included by playbook.yml)
+│   ├── 88a_redhat_operators_render_minor.yml  # included per OCP minor from 88_redhat_operators
+│   ├── 89_catalog_opm_render.yml         # per-catalog opm render -> outputs/<cluster>/operators/<catalog>_<tag>.json
+│   ├── 89a_catalog_opm_render_one.yml    # included per catalog from 89
+│   ├── 89b_catalog_mirror_check.yml      # IDMS/ICSP/ITMS checks -> outputs/<cluster>/operators/catalog_mirror_check.json
+│   ├── 90_render_report.yml              # renders templates, set_stats summary, fails on CRITICAL
+│   └── 99_oauth_logout.yml               # password method: revokes the OAuth token (always runs)
+├── templates/
+│   ├── report.md.j2
+│   ├── report.html.j2                    # PatternFly 6 look
+│   ├── report_summary.html.j2
+│   ├── cluster_operators_installed.md.j2
+│   └── fonts/                            # Red Hat fonts embedded in the HTML report (SIL OFL 1.1)
+├── aap/
+│   ├── configure.yml                     # creates the AAP project, inventory and job template + survey
+│   └── vars.yml                          # placeholders for configure.yml
+├── execution-environment.yml             # optional custom AAP execution environment
+├── execution-environment.txt             # how to build, push and register it
+├── extras/
+│   └── acm-policy-managed-serviceaccount-rbac.yaml  # reference ACM Policy (see ACM notes) - not auto-applied
+└── tests/                                # fixtures + offline unit/render tests
+    ├── fixtures.py
+    ├── test_filters.py
+    └── render_report_preview.py
 ```
 
 ## Version control
