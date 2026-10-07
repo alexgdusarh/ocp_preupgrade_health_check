@@ -2,6 +2,9 @@
 # AAP execution environment for the OpenShift pre-upgrade health check.
 # Build and push steps: execution-environment.txt.
 #
+# OPTIONAL: AAP 2.4's default EE (ee-supported-rhel8) already runs the
+# playbook. This file is for pinning your own versions, and as a reference.
+#
 # Built on plain UBI 9 rather than an AAP ee-* image, so this file decides
 # the ansible-core and Jinja2 versions. The AAP 2.4 ee-* images bring their
 # own ansible-core, and the playbook's templates have already broken once on
