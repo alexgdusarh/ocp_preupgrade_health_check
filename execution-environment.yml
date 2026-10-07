@@ -1,0 +1,41 @@
+---
+# AAP execution environment for the OpenShift pre-upgrade health check.
+# Build and push steps: execution-environment.txt.
+#
+# Built on plain UBI 9 rather than an AAP ee-* image, so this file decides
+# the ansible-core and Jinja2 versions. The AAP 2.4 ee-* images bring their
+# own ansible-core, and the playbook's templates have already broken once on
+# an untested ansible-core/Jinja2 pairing ("sequence item 3: expected str
+# instance, int found" on Jinja2 3.0.x). ansible-core 2.17 + Jinja2 3.1 is
+# what tests/render_report_preview.py was verified with.
+#
+# Python and collection dependencies come from the same requirements.txt and
+# requirements.yml as a local venv install, so both stay in step.
+version: 3
+
+images:
+  base_image:
+    name: registry.access.redhat.com/ubi9/ubi:latest
+
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+  ansible_core:
+    package_pip: ansible-core>=2.17,<2.18
+  ansible_runner:
+    package_pip: ansible-runner>=2.4,<2.5
+  python: requirements.txt
+  galaxy: requirements.yml
+
+options:
+  package_manager_path: /usr/bin/dnf
+
+additional_build_steps:
+  prepend_base:
+    # python3.11 itself is installed from package_system above; pip for it
+    # is not, and the build steps need it.
+    - RUN $PKGMGR install -y python3.11-pip && $PKGMGR clean all
+  append_final:
+    # Fail the build, not a cluster run, if the pairing drifts.
+    - RUN python3.11 -c "import ansible.release, jinja2; assert jinja2.__version__ >= '3.1', jinja2.__version__; print('ansible-core', ansible.release.__version__, '/ Jinja2', jinja2.__version__)"

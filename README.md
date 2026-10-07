@@ -156,6 +156,10 @@ ansible-galaxy collection install -r requirements.yml
 ansible --version                        # should show core 2.16+, jinja 3.1+ and the venv's Python
 ```
 
+To run it as an AAP 2.4 job template instead, build the execution
+environment in `execution-environment.yml`; `execution-environment.txt` has
+the build, push and controller steps.
+
 Use **`ansible-core >= 2.16`** (needs **Python 3.10+**), the version current
 `kubernetes.core` releases support. 2.12 is the oldest the playbook accepts;
 2.12 to 2.15 work but print a note. The Python running Ansible also needs

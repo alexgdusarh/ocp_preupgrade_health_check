@@ -1,0 +1,121 @@
+Building the execution environment (EE) for AAP 2.4
+====================================================
+
+execution-environment.yml (next to this file) defines a container image
+with everything the health check needs to run as an AAP job template:
+
+  - ansible-core 2.17 on Python 3.11, with Jinja2 3.1+
+  - ansible-runner 2.4 (AAP runs jobs through it)
+  - the collections in requirements.yml (kubernetes.core,
+    community.general, ansible.utils)
+  - the Python libraries in requirements.txt (kubernetes, websocket-client,
+    PyYAML, jmespath)
+
+It starts from plain UBI 9 instead of an AAP ee-* image so that the file,
+not the base image, decides the ansible-core and Jinja2 versions. The build
+fails at the end if Jinja2 is older than 3.1. On Jinja2 3.0.x the HTML
+report once failed with "sequence item 3: expected str instance, int found".
+
+No extra binaries are needed in the image: opm, etcdctl, ceph and pxctl all
+run inside cluster pods through kubernetes.core.k8s_exec.
+
+
+1. Prerequisites (on the build host)
+------------------------------------
+  - podman (or docker)
+  - Python 3.9+ and ansible-builder 3.x:
+
+        python3 -m venv ~/venv-builder
+        source ~/venv-builder/bin/activate
+        pip install 'ansible-builder>=3,<4'
+
+  - Internet access to registry.access.redhat.com (the UBI 9 base image,
+    no login needed), pypi.org and galaxy.ansible.com. On a disconnected
+    host, point pip and ansible-galaxy at your internal mirrors.
+
+
+2. Build
+--------
+Run from the repository root (the file refers to requirements.txt and
+requirements.yml by relative path):
+
+    cd ocp_preupgrade_health_check
+    ansible-builder build \
+      -f execution-environment.yml \
+      -t ocp-preupgrade-ee:1.0 \
+      --container-runtime podman
+
+The last build step prints the versions, e.g.
+
+    ansible-core 2.17.14 / Jinja2 3.1.6
+
+Generated build files go to ./context/ (safe to delete afterwards).
+
+
+3. Check the image before pushing
+---------------------------------
+    podman run --rm -v "$PWD":/runner/project:Z -w /runner/project \
+      ocp-preupgrade-ee:1.0 bash -c '
+        ansible --version
+        ansible-galaxy collection list | grep -E "kubernetes.core|community.general|ansible.utils"
+        python3.11 tests/test_filters.py | tail -1
+        python3.11 tests/render_report_preview.py | tail -5
+        ansible-playbook playbook.yml --syntax-check'
+
+Expected: "All checks passed.", every template "[OK] rendered ... through
+ansible-playbook", and "playbook: playbook.yml".
+
+
+4. Push to a registry AAP can pull from
+---------------------------------------
+Private Automation Hub (or any registry: Quay, OpenShift internal, ...):
+
+    podman login <hub-host>
+    podman tag ocp-preupgrade-ee:1.0 <hub-host>/ocp-preupgrade-ee:1.0
+    podman push <hub-host>/ocp-preupgrade-ee:1.0
+
+Use a new tag for every rebuild (1.0, 1.1, ...) rather than reusing one,
+so a job can always be traced back to the image it ran with.
+
+
+5. Register it in AAP 2.4 (automation controller)
+-------------------------------------------------
+  a. Resources > Credentials > Add: type "Container Registry", with the
+     registry host and a user/token that can pull the image (skip if the
+     registry allows anonymous pulls).
+  b. Administration > Execution Environments > Add:
+       Name:        ocp-preupgrade-ee
+       Image:       <hub-host>/ocp-preupgrade-ee:1.0
+       Pull:        "Only pull the image if not present before running"
+                    (or "Always pull" while testing new builds)
+       Registry credential: the one from step a
+  c. Resources > Templates > your health-check job template:
+       Execution Environment: ocp-preupgrade-ee
+       Playbook:              playbook.yml
+     Pass the usual extra vars, e.g.
+       upgrade_channel: eus
+       upgrade_target_version: 4.20.34
+     plus the cluster connection (ocp_auth_method / ocp_api_host /
+     ocp_api_token, ideally from an AAP credential rather than plain
+     extra vars).
+
+The collections are already in the image, so the project does not need a
+collections/requirements.yml for AAP to install at sync time.
+
+
+6. Where the reports go
+-----------------------
+The playbook writes reports to outputs/<cluster>/ inside the job's
+container, and AAP discards the container when the job ends. Until the
+playbook copies them somewhere permanent, the files from an AAP run are
+lost; the findings still show in the job output.
+
+
+7. Updating versions
+--------------------
+  - Python libraries and collections: edit requirements.txt /
+    requirements.yml (the same files a local venv install uses), rebuild,
+    push with a new tag, and update the image in step 5b.
+  - ansible-core / ansible-runner: edit the dependencies section of
+    execution-environment.yml. Before pushing, run the step 3 check: the
+    report templates are what an ansible-core / Jinja2 change breaks first.
