@@ -8,3 +8,5 @@ __pycache__/
 # Everything a run writes (outputs/<cluster>/reports/ and
 # outputs/<cluster>/operators/) - cluster-specific, never committed.
 outputs/
+# ansible-builder build output (see execution-environment.txt)
+/context/
