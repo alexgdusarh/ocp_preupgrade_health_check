@@ -1,7 +1,7 @@
 ---
-# Settings for aap/configure.yml. Every CHANGE-ME is a placeholder to replace
-# before the first run. No secrets here: the AAP host and token come from
-# environment variables (see the header of aap/configure.yml).
+# Settings for aap/configure.yaml, which loads this file automatically.
+# Replace every CHANGE-ME before the first run. No secrets here: the AAP host
+# and token come from environment variables (see aap/README.md).
 
 # Existing AAP organization that will own the project and job template.
 aap_organization: CHANGE-ME-organization

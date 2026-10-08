@@ -88,8 +88,8 @@ so a job can always be traced back to the image it ran with.
 
 5. Register it in AAP 2.4 (automation controller)
 -------------------------------------------------
-aap/configure.yml creates the project, inventory and job template (with
-its survey) for you; point aap_execution_environment in aap/vars.yml at
+aap/configure.yaml creates the project, inventory and job template (with
+its survey) for you; point aap_execution_environment in aap/vars.yaml at
 this EE's name after step b. The manual steps:
 
   a. Resources > Credentials > Add: type "Container Registry", with the
@@ -104,7 +104,7 @@ this EE's name after step b. The manual steps:
   c. Resources > Templates > your health-check job template:
        Execution Environment: ocp-preupgrade-ee
        Playbook:              playbook.yml
-     The survey from aap/configure.yml asks for the cluster, the
+     The survey from aap/configure.yaml asks for the cluster, the
      OpenShift username (blank = the AAP user) and password, the upgrade
      channel and the optional target version, e.g.
        upgrade_channel: eus

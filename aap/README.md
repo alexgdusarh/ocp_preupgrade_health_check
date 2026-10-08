@@ -1,4 +1,4 @@
-# AAP setup for the health check (`aap/configure.yml`)
+# AAP setup for the health check (`aap/configure.yaml`)
 
 A standalone playbook that creates, in Ansible Automation Platform (AAP) 2.4,
 everything needed to run the OpenShift pre-upgrade health check as a job:
@@ -77,10 +77,10 @@ CRITICAL findings.
   where you run this playbook.
 - **An AAP OAuth token** for a user who is admin of that organization:
   AAP UI > Users > *your user* > Tokens > Add, scope **Write**.
-- **The `ansible.controller` collection.** It is already in AAP's
-  `ee-supported-rhel8` image, so the easiest way is to run inside it
-  (option A below). Without the image, `ansible-galaxy collection install
-  awx.awx` gives the same modules from public Galaxy (option B).
+- **The `ansible.controller` or `awx.awx` collection** - the playbook uses
+  whichever is installed. `ansible.controller` is already in AAP's
+  `ee-supported-rhel8` image (option A below); `awx.awx` is on public Galaxy
+  (option B).
 - **The git repository URL** AAP will pull from, and - if the repository is
   private - the name of an existing AAP **Source Control** credential.
 - **An execution environment registered in AAP.** `Default execution
@@ -89,12 +89,12 @@ CRITICAL findings.
 
 ## 1. Fill in the settings
 
-Never commit real values. Copy the placeholder file to a `*.local.yml` name,
-which git ignores:
+All settings are in **`aap/vars.yaml`**, which `aap/configure.yaml` loads by
+itself. Replace the `CHANGE-ME` placeholders there (in your own repository -
+keep real values out of public copies):
 
 ```bash
-cp aap/vars.yml aap/vars.local.yml
-vi aap/vars.local.yml
+vi aap/vars.yaml
 ```
 
 | Variable | Replace with |
@@ -102,7 +102,7 @@ vi aap/vars.local.yml
 | `aap_organization` | Existing AAP organization, e.g. `CHANGE-ME-organization` |
 | `aap_scm_url` | Git URL AAP pulls from, e.g. `https://git.example.com/team/ocp_preupgrade_health_check.git` |
 | `aap_scm_branch` | Branch to run (default `main`) |
-| `aap_playbook` | Path of `playbook.yml` from the repository root: `playbook.yml` (default), or e.g. `automation/openshift/playbook.yml` when the project sits in a folder of a larger repository |
+| `aap_playbook` | Path of the health-check playbook from the repository root: `playbook.yml` (default), or e.g. `automation/openshift/playbook.yaml` when it sits in a folder of a larger repository |
 | `aap_scm_credential` | Name of an existing Source Control credential, or `""` for a public repository |
 | `aap_execution_environment` | EE name as shown in AAP (default `Default execution environment`) |
 | `aap_clusters` | One API URL per cluster, e.g. `https://api.cluster-a.example.com:6443` |
@@ -112,6 +112,8 @@ vi aap/vars.local.yml
 
 The playbook stops before touching AAP while `aap_organization`,
 `aap_scm_url` or `aap_clusters` still contain `CHANGE-ME`, and lists which.
+Any setting can also be overridden for one run with `-e`, e.g.
+`-e aap_scm_branch=test`.
 
 ## 2. Set the connection (environment variables only)
 
@@ -142,7 +144,7 @@ podman run --rm \
   -v "$PWD":/runner/project:Z -w /runner/project \
   -e CONTROLLER_HOST -e CONTROLLER_OAUTH_TOKEN -e CONTROLLER_VERIFY_SSL \
   registry.redhat.io/ansible-automation-platform-24/ee-supported-rhel8:latest \
-  ansible-playbook aap/configure.yml -e @aap/vars.local.yml
+  ansible-playbook aap/configure.yaml
 ```
 
 `-e NAME` without a value passes the variable from your shell into the
@@ -152,12 +154,11 @@ container, so the token is never written on the command line.
 
 ```bash
 ansible-galaxy collection install awx.awx
-sed 's/ansible\.controller\./awx.awx./' aap/configure.yml > aap/configure.local.yml
-ansible-playbook aap/configure.local.yml -e @aap/vars.local.yml
+ansible-playbook aap/configure.yaml
 ```
 
-`awx.awx` has the same modules under another name; the `sed` writes a
-git-ignored copy that uses it.
+`awx.awx` has the same modules as `ansible.controller`; the playbook finds
+either one.
 
 ### When you're done
 
@@ -183,16 +184,16 @@ from the repository root, which `aap_playbook` sets (AAP's playbook list
 shows playbooks in subfolders too). AAP runs from the repository root, so
 the folder's `ansible.cfg` is ignored; the playbook doesn't need it -
 `filter_plugins/`, `group_vars/` and `templates/` next to `playbook.yml` are
-found on their own. The same applies to `aap/configure.yml` itself: run it
-by its path, e.g.
+found on their own. The same applies to `aap/configure.yaml` itself: run it
+by its path - it still finds `aap/vars.yaml` next to it, e.g.
 
 ```bash
-ansible-playbook automation/openshift/aap/configure.yml -e @automation/openshift/aap/vars.local.yml
+ansible-playbook automation/openshift/aap/configure.yaml
 ```
 
 ## Changing or removing things
 
-- **Change** any setting in `aap/vars.local.yml` and run the playbook again;
+- **Change** any setting in `aap/vars.yaml` and run the playbook again;
   existing objects are updated in place, including the survey.
 - **Remove** the objects in the AAP UI (job template first, then inventory
   and project); this playbook only creates and updates.
@@ -207,4 +208,4 @@ ansible-playbook automation/openshift/aap/configure.yml -e @automation/openshift
 | A `401` or `403` response | The token expired, was revoked, was created with Read scope, or its user isn't admin of the organization |
 | `Request to /api/v2/organizations/?name=... returned 0 items, expected 1` | `aap_organization` doesn't match an existing organization (names are case-sensitive) |
 | `Request to /api/v2/execution_environments/?name=... returned 0 items, expected 1` | `aap_execution_environment` doesn't match an EE registered in AAP |
-| `couldn't resolve module/action 'ansible.controller.project'` | The collection is missing - use option A, or option B with `awx.awx` |
+| `couldn't resolve module/action 'project'` | Neither `ansible.controller` nor `awx.awx` is installed - use option A, or install `awx.awx` (option B) |
