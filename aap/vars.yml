@@ -10,6 +10,13 @@ aap_organization: CHANGE-ME-organization
 aap_project_name: OCP pre-upgrade health check
 aap_scm_url: https://git.example.com/CHANGE-ME/ocp_preupgrade_health_check.git
 aap_scm_branch: main
+# Path of playbook.yml inside the repository, relative to its root. Keep the
+# default when this project is the repository; when it sits in a folder of a
+# larger repository, e.g. automation/openshift/playbook.yml. AAP runs from the
+# repository root, so the folder's ansible.cfg is ignored - nothing in it is
+# needed: filter_plugins/, group_vars/ and templates/ next to playbook.yml are
+# found on their own.
+aap_playbook: playbook.yml
 # Name of an existing Source Control credential for a private repo; "" for none.
 aap_scm_credential: ""
 
