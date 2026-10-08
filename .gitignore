@@ -10,3 +10,5 @@ __pycache__/
 outputs/
 # ansible-builder build output (see execution-environment.txt)
 /context/
+# Real values for aap/configure.yml (see aap/README.md) - never committed
+aap/*.local.yml

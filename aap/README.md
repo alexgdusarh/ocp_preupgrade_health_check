@@ -1,0 +1,154 @@
+# AAP setup for the health check (`aap/configure.yml`)
+
+A standalone playbook that creates, in Ansible Automation Platform (AAP) 2.4,
+everything needed to run the OpenShift pre-upgrade health check as a job:
+
+| Object | Name (default) | What it is |
+| --- | --- | --- |
+| Project | `OCP pre-upgrade health check` | Pulls this git repository; updates on every launch |
+| Inventory | `OCP pre-upgrade health check - localhost` | One host, `localhost` - the playbook talks to clusters over their API, not SSH |
+| Job template | `OCP pre-upgrade health check` | Runs `playbook.yml` in the chosen execution environment, with the survey below |
+
+It is independent of the health check itself: it only talks to the AAP API,
+never to an OpenShift cluster. Running it again updates the same objects
+(matched by name) instead of creating duplicates.
+
+## The survey users see at launch
+
+| Question | Variable | Type | Notes |
+| --- | --- | --- | --- |
+| Cluster | `ocp_api_host` | Multiple choice | The API URLs listed in `aap_clusters` |
+| OpenShift username | `ocp_username` | Text, optional | Blank = log in as the AAP user who launched the job (`awx_user_name`) |
+| OpenShift password | `ocp_password` | Password | Stored encrypted, shown as `$encrypted$`; exchanged once for an OAuth token, which is revoked at the end of the run |
+| Upgrade channel | `upgrade_channel` | Multiple choice | `eus`, `stable`, `fast` (default `eus`) |
+| Target version | `upgrade_target_version` | Text, optional | Exact `x.y.z`, e.g. `4.20.34`; blank = the channel's latest |
+
+Every launch also gets the fixed extra vars in `aap_job_extra_vars`
+(`ocp_auth_method: password`, `ocp_validate_certs: true`).
+
+After a run, the job's **Artifacts** (Details page) hold the summary under
+`ocp_preupgrade_health.<cluster>`: overall status, counts, versions and the
+CRITICAL findings.
+
+## Prerequisites
+
+- **AAP 2.4** with an existing **organization**, reachable over HTTPS from
+  where you run this playbook.
+- **An AAP OAuth token** for a user who is admin of that organization:
+  AAP UI > Users > *your user* > Tokens > Add, scope **Write**.
+- **The `ansible.controller` collection.** It is already in AAP's
+  `ee-supported-rhel8` image, so the easiest way is to run inside it
+  (option A below). Without the image, `ansible-galaxy collection install
+  awx.awx` gives the same modules from public Galaxy (option B).
+- **The git repository URL** AAP will pull from, and - if the repository is
+  private - the name of an existing AAP **Source Control** credential.
+- **An execution environment registered in AAP.** `Default execution
+  environment` (ee-supported-rhel8) has everything the health check needs;
+  the custom one in `../execution-environment.yml` is optional.
+
+## 1. Fill in the settings
+
+Never commit real values. Copy the placeholder file to a `*.local.yml` name,
+which git ignores:
+
+```bash
+cp aap/vars.yml aap/vars.local.yml
+vi aap/vars.local.yml
+```
+
+| Variable | Replace with |
+| --- | --- |
+| `aap_organization` | Existing AAP organization, e.g. `CHANGE-ME-organization` |
+| `aap_scm_url` | Git URL AAP pulls from, e.g. `https://git.example.com/team/ocp_preupgrade_health_check.git` |
+| `aap_scm_branch` | Branch to run (default `main`) |
+| `aap_scm_credential` | Name of an existing Source Control credential, or `""` for a public repository |
+| `aap_execution_environment` | EE name as shown in AAP (default `Default execution environment`) |
+| `aap_clusters` | One API URL per cluster, e.g. `https://api.cluster-a.example.com:6443` |
+| `aap_upgrade_channels` / `aap_default_upgrade_channel` | Channels offered in the survey, and the default |
+| `aap_project_name`, `aap_inventory_name`, `aap_job_template_name` | Object names, if you want others |
+| `aap_job_extra_vars` | Extra vars fixed on every launch |
+
+The playbook stops before touching AAP while `aap_organization`,
+`aap_scm_url` or `aap_clusters` still contain `CHANGE-ME`, and lists which.
+
+## 2. Set the connection (environment variables only)
+
+The AAP host and token are read from the environment, never from a file in
+the repository. `read -s` keeps the token out of your shell history and off
+the screen:
+
+```bash
+export CONTROLLER_HOST=https://aap.example.com
+read -rsp 'AAP token: ' CONTROLLER_OAUTH_TOKEN; echo; export CONTROLLER_OAUTH_TOKEN
+export CONTROLLER_VERIFY_SSL=true   # the default; keep certificate checks on
+```
+
+If AAP's certificate is signed by an internal CA, that CA must be trusted
+where the playbook runs (the host's trust store, or the EE image).
+
+## 3. Run it
+
+Run from the repository root.
+
+### Option A - inside AAP's execution environment (recommended)
+
+Uses the same image AAP runs jobs in, so `ansible.controller` is already
+there. Log in to the registry once (`podman login registry.redhat.io`), then:
+
+```bash
+podman run --rm \
+  -v "$PWD":/runner/project:Z -w /runner/project \
+  -e CONTROLLER_HOST -e CONTROLLER_OAUTH_TOKEN -e CONTROLLER_VERIFY_SSL \
+  registry.redhat.io/ansible-automation-platform-24/ee-supported-rhel8:latest \
+  ansible-playbook aap/configure.yml -e @aap/vars.local.yml
+```
+
+`-e NAME` without a value passes the variable from your shell into the
+container, so the token is never written on the command line.
+
+### Option B - with a local Ansible
+
+```bash
+ansible-galaxy collection install awx.awx
+sed 's/ansible\.controller\./awx.awx./' aap/configure.yml > aap/configure.local.yml
+ansible-playbook aap/configure.local.yml -e @aap/vars.local.yml
+```
+
+`awx.awx` has the same modules under another name; the `sed` writes a
+git-ignored copy that uses it.
+
+### When you're done
+
+```bash
+unset CONTROLLER_OAUTH_TOKEN
+```
+
+## 4. Check the result
+
+1. **Resources > Projects**: the project's last sync is **Successful**. A
+   failed sync usually means a wrong `aap_scm_url`, branch or Source Control
+   credential.
+2. **Resources > Templates**: open the job template, **Launch**, and the
+   survey above appears. Pick a cluster and enter an OpenShift password.
+3. When the job finishes, **Details > Artifacts** shows the
+   `ocp_preupgrade_health` summary. The report files themselves are not
+   kept after the job yet (see `../execution-environment.txt`, section 6).
+
+## Changing or removing things
+
+- **Change** any setting in `aap/vars.local.yml` and run the playbook again;
+  existing objects are updated in place, including the survey.
+- **Remove** the objects in the AAP UI (job template first, then inventory
+  and project); this playbook only creates and updates.
+
+## Troubleshooting
+
+| Message | Cause |
+| --- | --- |
+| `Set CONTROLLER_HOST and CONTROLLER_OAUTH_TOKEN, and replace the CHANGE-ME values ...` | A variable is not exported, or a placeholder is left (the message names it) |
+| `... unknown error when trying to connect to https://...` | `CONTROLLER_HOST` is wrong or not reachable from where the playbook runs (inside a container: from the container) |
+| `CERTIFICATE_VERIFY_FAILED` | AAP's CA is not trusted where the playbook runs - add it to the trust store or EE; don't turn verification off |
+| A `401` or `403` response | The token expired, was revoked, was created with Read scope, or its user isn't admin of the organization |
+| `Request to /api/v2/organizations/?name=... returned 0 items, expected 1` | `aap_organization` doesn't match an existing organization (names are case-sensitive) |
+| `Request to /api/v2/execution_environments/?name=... returned 0 items, expected 1` | `aap_execution_environment` doesn't match an EE registered in AAP |
+| `couldn't resolve module/action 'ansible.controller.project'` | The collection is missing - use option A, or option B with `awx.awx` |
