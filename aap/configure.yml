@@ -82,7 +82,7 @@
         organization: "{{ aap_organization }}"
         job_type: run
         project: "{{ aap_project_name }}"
-        playbook: playbook.yml
+        playbook: "{{ aap_playbook }}"
         inventory: "{{ aap_inventory_name }}"
         execution_environment: "{{ aap_execution_environment }}"
         extra_vars: "{{ aap_job_extra_vars }}"

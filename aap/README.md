@@ -102,6 +102,7 @@ vi aap/vars.local.yml
 | `aap_organization` | Existing AAP organization, e.g. `CHANGE-ME-organization` |
 | `aap_scm_url` | Git URL AAP pulls from, e.g. `https://git.example.com/team/ocp_preupgrade_health_check.git` |
 | `aap_scm_branch` | Branch to run (default `main`) |
+| `aap_playbook` | Path of `playbook.yml` from the repository root: `playbook.yml` (default), or e.g. `automation/openshift/playbook.yml` when the project sits in a folder of a larger repository |
 | `aap_scm_credential` | Name of an existing Source Control credential, or `""` for a public repository |
 | `aap_execution_environment` | EE name as shown in AAP (default `Default execution environment`) |
 | `aap_clusters` | One API URL per cluster, e.g. `https://api.cluster-a.example.com:6443` |
@@ -174,6 +175,20 @@ unset CONTROLLER_OAUTH_TOKEN
 3. When the job finishes, **Details > Artifacts** shows the
    `ocp_preupgrade_health` summary. The report files themselves are not
    kept after the job yet (see `../execution-environment.txt`, section 6).
+
+## When the project is a folder in a larger repository
+
+AAP has no separate folder setting: the job template's playbook is a path
+from the repository root, which `aap_playbook` sets (AAP's playbook list
+shows playbooks in subfolders too). AAP runs from the repository root, so
+the folder's `ansible.cfg` is ignored; the playbook doesn't need it -
+`filter_plugins/`, `group_vars/` and `templates/` next to `playbook.yml` are
+found on their own. The same applies to `aap/configure.yml` itself: run it
+by its path, e.g.
+
+```bash
+ansible-playbook automation/openshift/aap/configure.yml -e @automation/openshift/aap/vars.local.yml
+```
 
 ## Changing or removing things
 
