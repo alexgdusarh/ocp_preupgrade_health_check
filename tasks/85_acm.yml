@@ -277,7 +277,7 @@
                   ansible.builtin.command:
                     argv:
                       - ansible-playbook
-                      - "{{ playbook_dir }}/playbook.yml"
+                      - "{{ acm_cascade_playbook }}"
                       - "-e"
                       - "@{{ report_output_dir }}/.acm-cascade-scratch/{{ item.name }}.extravars.json"
                     chdir: "{{ playbook_dir }}"
