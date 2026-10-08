@@ -596,6 +596,58 @@ check("explicit major.minor target is accepted", f.catalog_export_cluster("4.18.
 check("target not newer than current -> error, not a crash", "error" in f.catalog_export_cluster("4.18.28", "4.18.30"))
 check("unparseable current version -> error, not a crash", "error" in f.catalog_export_cluster(""))
 
+# ---- ACM hub sizing --------------------------------------------------------------
+check("k8s_quantity_bytes: Gi / M / plain / junk",
+      f.k8s_quantity_bytes("100Gi") == 100 * 1024 ** 3 and f.k8s_quantity_bytes("500M") == 500 * 1000 ** 2
+      and f.k8s_quantity_bytes("1024") == 1024 and f.k8s_quantity_bytes("lots") is None and f.k8s_quantity_bytes(None) is None)
+check("df_usage parses df -P -k", f.df_usage(fx.acm_df_stdout(24, 100)) == {"size_bytes": 100 * fx.GIB, "used_bytes": 24 * fx.GIB})
+check("df_usage on an error message -> {}", f.df_usage("df: /x: No such file or directory") == {})
+_t = f.pvc_mount_targets(fx.ACM_SIZING_PVCS, fx.ACM_SIZING_PODS)
+_rx = next(t for t in _t if t["pvc"] == "data-observability-thanos-receive-default-0")
+check("pvc_mount_targets finds the container that mounts the PVC, not the sidecar",
+      (_rx["pod"], _rx["container"], _rx["path"]) == ("observability-thanos-receive-default-0", "thanos-receive", "/var/thanos/receive"))
+check("a PVC only mounted by a Pending pod has no exec target",
+      next(t for t in _t if t["pvc"] == "data-observability-thanos-rule-1")["pod"] == "")
+_res = [{"item": t, "stdout": fx.acm_df_stdout(fx.ACM_SIZING_USED_GIB[t["pvc"]], t["capacity_bytes"] / fx.GIB)}
+        for t in _t if t["pod"] and t["pvc"] in fx.ACM_SIZING_USED_GIB]
+_res.append({"item": next(t for t in _t if t["pvc"] == "data-observability-thanos-store-shard-0-0"), "failed": True, "stdout": ""})
+_v = f.with_df_usage(_t, _res)
+check("with_df_usage: measured volume gets used_bytes, unmeasured gets None",
+      next(v for v in _v if v["pvc"] == "postgres")["used_bytes"] == int(1.5 * fx.GIB)
+      and next(v for v in _v if v["pvc"] == "data-observability-thanos-rule-2")["used_bytes"] is None)
+_sz = f.acm_sizing_report(_v, 30, "2.12.3", fx.ACM_SIZING_FEATURES, fx.ACM_SIZING_STORAGECLASSES, fx.ACM_SIZING_NODES, fx.ACM_SIZING_SETTINGS)
+_c = {c["key"]: c for c in _sz["components"]}
+check("measured per-cluster rate: thanos-compact 45 GiB / 30 clusters = 1.5", _c["obs_compact"]["per_cluster_gib"] == 1.5)
+check("supports = size x 80% / per-cluster (100 x 0.8 / 1.5 = 53)", _c["obs_compact"]["supports"] == 53)
+check("hub limit is the lowest component", _sz["supports"] == {"clusters": 53, "limited_by": "Observability: thanos-compact"})
+check("recommendation for 200 clusters: 1.5 x 200 / 0.8 = 375 -> 380 GiB",
+      [r["gib"] for r in _c["obs_compact"]["recommended"]] == [100, 100, 190, 290, 380])
+check("never recommends below the Red Hat default", all(r["gib"] >= 100 for r in _c["obs_receive"]["recommended"]))
+check("fixed components stay at their default", [r["gib"] for r in _c["obs_rule"]["recommended"]] == [1] * 5)
+check("Assisted filesystem uses Red Hat's rule, not usage / clusters", _c["ai_fs"]["basis"].startswith("Red Hat rule: 200 MB per cluster"))
+check("Assisted image storage: at least 50Gi for every tier", [r["gib"] for r in _c["ai_image"]["recommended"]] == [50] * 5)
+_sev = [(x["severity"], x["summary"]) for x in _sz["findings"]]
+check("search on emptyDir -> WARNING", any(sv == "WARNING" and "emptyDir" in m for sv, m in _sev))
+check("PVC over 80% full -> WARNING", any(sv == "WARNING" and "filesystem PVC is 95.0% full" in m for sv, m in _sev))
+check("undersized Assisted image storage -> WARNING", any(sv == "WARNING" and "50Gi minimum" in m for sv, m in _sev))
+check("hub capacity summary -> INFO", any(sv == "INFO" and "about 53 managed clusters" in m for sv, m in _sev))
+check("hub workers exclude masters", _sz["hub_nodes"] == {"workers": 3, "cpu": 46.5, "memory_gib": 186.0})
+_local = [dict(v, storage_class="local-block") if "thanos-receive" in v["pvc"] else v for v in _v]
+check("observability on local storage -> WARNING",
+      any("must not use local storage" in x["summary"] for x in f.acm_sizing_report(
+          _local, 30, "", fx.ACM_SIZING_FEATURES, fx.ACM_SIZING_STORAGECLASSES, [], fx.ACM_SIZING_SETTINGS)["findings"]))
+_none = f.acm_sizing_report(_t, 30, "", {"observability": False, "search_cr": True}, [], [], fx.ACM_SIZING_SETTINGS)
+_cn = {c["key"]: c for c in _none["components"]}
+check("nothing measured -> no capacity claim, receive falls back to Red Hat's test",
+      _none["supports"] is None and _cn["obs_receive"]["basis"] == "Red Hat 10/20-cluster test, extrapolated")
+check("Red Hat test extrapolation for 200 clusters: 4 x (1 + 0.1 x 200) / 0.8 = 105 -> 110 GiB",
+      _cn["obs_receive"]["recommended"][-1]["gib"] == 110)
+check("no published figure -> the default, labeled so", _cn["obs_compact"]["recommended"][0]["basis"].startswith("default; no published figure"))
+_few = f.acm_sizing_report(_v, 3, "", fx.ACM_SIZING_FEATURES, [], [], fx.ACM_SIZING_SETTINGS)
+check("a per-cluster rate from only 3 clusters is marked rough",
+      "rough" in {c["key"]: c for c in _few["components"]}["obs_compact"]["basis"])
+check("zero managed clusters -> no division by zero", f.acm_sizing_report(_v, 0, "", {}, [], [], {})["supports"] is None)
+
 # ---- survey_settings -------------------------------------------------------------
 _flags = {"Skip ODF checks": {"odf_enabled": False}, "Don't fail the job on CRITICAL": {"fail_on_critical": False}}
 _allow = {"etcd_db_warn_pct": "float", "finalizer_scan_stuck_after_seconds": "int"}

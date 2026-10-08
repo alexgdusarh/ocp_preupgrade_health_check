@@ -444,6 +444,45 @@
     {% endfor %}
   </table></div>
 
+  {% set sz = acm_sizing_data | default({}) %}
+  {% if sz.components is defined %}
+  <h3 style="margin-top:24px;">Hub sizing</h3>
+  <p class="note">ACM {{ sz.acm_version or 'version unknown' }} managing <b>{{ sz.managed_clusters }}</b> cluster(s).
+  {% if sz.supports %}Measured storage supports about <b>{{ sz.supports.clusters }}</b> managed clusters at {{ sz.max_fill_pct }}% fill, limited by {{ sz.supports.limited_by }}.
+  {% else %}No usage could be measured, so the recommendations below use Red Hat's published rules and defaults only.{% endif %}
+  Red Hat publishes no sizing table for N managed clusters; each number below shows its basis.
+  Hub workers: {{ sz.hub_nodes.workers }} node(s), {{ sz.hub_nodes.cpu }} CPU / {{ sz.hub_nodes.memory_gib }} GiB allocatable
+  (Red Hat publishes no CPU/memory figure per cluster count).</p>
+  <details><summary>Current storage ({{ sz.components | selectattr('enabled') | list | length }} components in use)</summary>
+  <div class="tblwrap"><table>
+    <tr><th>Component</th><th>PVCs</th><th>Size each</th><th>Used (max)</th><th>Fill</th><th>Per cluster</th><th>Supports</th><th>Basis</th></tr>
+    {% for c in sz.components %}
+    <tr><td>{{ c.label }}{{ '' if c.enabled else ' (not in use)' }}{% if c.note %}<div class="note">{{ c.note }}</div>{% endif %}</td>
+      <td>{{ c.replicas }}</td>
+      <td>{{ (c.capacity_gib ~ ' GiB') if c.capacity_gib is not none else '-' }}</td>
+      <td>{{ (c.used_gib ~ ' GiB') if c.used_gib is not none else '-' }}</td>
+      <td>{% if c.fill_pct is not none %}<span class="badge {{ 'WARNING' if c.fill_pct > sz.max_fill_pct else 'OK' }}">{{ c.fill_pct ~ '%' }}</span>{% else %}-{% endif %}</td>
+      <td>{{ (c.per_cluster_gib ~ ' GiB') if c.per_cluster_gib is not none else '-' }}</td>
+      <td>{{ ('~' ~ c.supports ~ ' clusters') if c.supports is not none else '-' }}</td>
+      <td class="note">{{ c.basis }}</td></tr>
+    {% endfor %}
+  </table></div>
+  </details>
+  <details><summary>Recommended size per PVC by managed clusters (GiB, {{ sz.max_fill_pct }}% max fill)</summary>
+  <div class="tblwrap"><table>
+    <tr><th>Component</th><th>Now</th>{% for t in sz.tiers %}<th>{{ t }} clusters</th>{% endfor %}<th>Basis</th></tr>
+    {% for c in sz.components %}
+    <tr><td>{{ c.label }}{{ '' if c.enabled else ' (if enabled)' }}</td>
+      <td>{{ c.capacity_gib if c.capacity_gib is not none else '-' }}</td>
+      {% for r in c.recommended %}<td>{% if r.gib is none %}-{% elif c.capacity_gib is not none and r.gib > c.capacity_gib %}<b>{{ r.gib }}</b>{% else %}{{ r.gib }}{% endif %}</td>{% endfor %}
+      <td class="note">{{ (c.recommended | first | default({})).basis | default('') }}</td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="note">Bold = larger than the PVC is today. Sizes are per PVC; replicated components (e.g. thanos-receive x3) need that size for each replica.
+  Observability also needs object storage, which isn't sized here.</p>
+  </details>
+  {% endif %}
+
   {% if not acm_cascade_enabled %}
   <p class="note" style="margin-top:16px;">Cascade run skipped (acm_cascade_enabled=false) - inventory/health only above. Set acm_cascade_enabled=true to run the full check against every managed cluster and generate a separate report for each.</p>
   {% else %}

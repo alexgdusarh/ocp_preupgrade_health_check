@@ -753,3 +753,80 @@ SUBOP_INSTALLPLANS = [
             {"type": "olm.package", "value": {"packageName": "devworkspace-operator", "version": "0.43.0"}}]})},
     ]}},
 ]
+
+
+# ---- ACM hub sizing (tasks/86_acm_sizing.yml) ------------------------------------
+# A hub managing 30 clusters: observability on (default PVC sizes), search on
+# emptyDir (the default), Assisted Installer with OS images 4.12-4.20.
+def _acm_pvc(ns, name, size, sc="ocs-storagecluster-ceph-rbd"):
+    return {"metadata": {"namespace": ns, "name": name},
+            "spec": {"storageClassName": sc, "resources": {"requests": {"storage": size}}},
+            "status": {"phase": "Bound", "capacity": {"storage": size}}}
+
+
+def _acm_pod(ns, name, claim, container, path, phase="Running"):
+    return {"metadata": {"namespace": ns, "name": name},
+            "spec": {"volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": claim}},
+                                 {"name": "tmp", "emptyDir": {}}],
+                     "containers": [{"name": "sidecar", "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}]},
+                                    {"name": container, "volumeMounts": [{"name": "data", "mountPath": path}]}]},
+            "status": {"phase": phase}}
+
+
+_OBS = "open-cluster-management-observability"
+_MCE = "multicluster-engine"
+ACM_SIZING_PVCS = (
+    [_acm_pvc(_OBS, f"data-observability-thanos-receive-default-{i}", "100Gi") for i in range(3)]
+    + [_acm_pvc(_OBS, "data-observability-thanos-compact-0", "100Gi")]
+    + [_acm_pvc(_OBS, f"data-observability-thanos-store-shard-{i}-0", "10Gi") for i in range(3)]
+    + [_acm_pvc(_OBS, f"data-observability-thanos-rule-{i}", "1Gi") for i in range(3)]
+    + [_acm_pvc(_OBS, f"alertmanager-db-observability-alertmanager-{i}", "1Gi") for i in range(3)]
+    + [_acm_pvc(_MCE, "postgres", "10Gi"), _acm_pvc(_MCE, "assisted-service", "20Gi"),
+       _acm_pvc(_MCE, "image-service-data-assisted-image-service-0", "10Gi")]
+)
+ACM_SIZING_PODS = (
+    [_acm_pod(_OBS, f"observability-thanos-receive-default-{i}", f"data-observability-thanos-receive-default-{i}", "thanos-receive", "/var/thanos/receive") for i in range(3)]
+    + [_acm_pod(_OBS, "observability-thanos-compact-0", "data-observability-thanos-compact-0", "thanos-compact", "/var/thanos/compact")]
+    + [_acm_pod(_OBS, f"observability-thanos-store-shard-{i}-0", f"data-observability-thanos-store-shard-{i}-0", "thanos-store", "/var/thanos/store") for i in range(3)]
+    + [_acm_pod(_OBS, "observability-thanos-rule-0", "data-observability-thanos-rule-0", "thanos-rule", "/var/thanos/rule")]
+    + [_acm_pod(_MCE, "assisted-service-abc", "postgres", "postgres", "/var/lib/pgsql/data")]
+    + [_acm_pod(_MCE, "assisted-service-abc2", "assisted-service", "assisted-service", "/data")]
+    + [_acm_pod(_MCE, "assisted-image-service-0", "image-service-data-assisted-image-service-0", "assisted-image-service", "/data")]
+    + [_acm_pod(_OBS, "observability-thanos-rule-1", "data-observability-thanos-rule-1", "thanos-rule", "/var/thanos/rule", phase="Pending")]
+)
+ACM_SIZING_STORAGECLASSES = [
+    {"metadata": {"name": "ocs-storagecluster-ceph-rbd"}, "provisioner": "openshift-storage.rbd.csi.ceph.com"},
+    {"metadata": {"name": "local-block"}, "provisioner": "kubernetes.io/no-provisioner"},
+]
+ACM_SIZING_NODES = [
+    {"metadata": {"name": f"master-{i}", "labels": {"node-role.kubernetes.io/master": ""}},
+     "spec": {}, "status": {"allocatable": {"cpu": "7500m", "memory": "30Gi"}}} for i in range(3)
+] + [
+    {"metadata": {"name": f"worker-{i}", "labels": {"node-role.kubernetes.io/worker": ""}},
+     "spec": {}, "status": {"allocatable": {"cpu": "15500m", "memory": "62Gi"}}} for i in range(3)
+]
+GIB = 1024 ** 3
+# df -P -k output: used KiB per volume (receive 24 GiB at 30 clusters, ...)
+ACM_SIZING_USED_GIB = {
+    "data-observability-thanos-receive-default-0": 22, "data-observability-thanos-receive-default-1": 24,
+    "data-observability-thanos-receive-default-2": 23, "data-observability-thanos-compact-0": 45,
+    "data-observability-thanos-store-shard-0-0": 3, "data-observability-thanos-store-shard-1-0": 2,
+    "data-observability-thanos-store-shard-2-0": 2, "data-observability-thanos-rule-0": 0.1,
+    "postgres": 1.5, "assisted-service": 19, "image-service-data-assisted-image-service-0": 9,
+}
+
+
+def acm_df_stdout(used_gib, size_gib):
+    return ("Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
+            f"/dev/rbd0 {int(size_gib * 1048576)} {int(used_gib * 1048576)} "
+            f"{int((size_gib - used_gib) * 1048576)} 50% /data\n")
+
+
+ACM_SIZING_FEATURES = {"observability": True, "search_cr": True, "assisted": True,
+                       "assisted_os_versions": 9, "assisted_os_images": 9}
+ACM_SIZING_SETTINGS = {
+    "tiers": [25, 50, 100, 150, 200], "max_fill": 0.8, "min_clusters": 5, "step_gib": 10,
+    "defaults_gib": {"obs_receive": 100, "obs_compact": 100, "obs_store": 10, "obs_rule": 1,
+                     "obs_alertmanager": 1, "search": 10, "ai_db": 10, "ai_fs": 100, "ai_image": 50},
+    "namespaces": {"acm": "open-cluster-management", "observability": _OBS, "mce": _MCE},
+}

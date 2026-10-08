@@ -1842,6 +1842,298 @@ def cluster_folder_name(infrastructure_name: Any, fallback: Any = "cluster") -> 
     return re.sub(r"-[a-z0-9]{5,6}$", "", name) or name
 
 
+# ----------------------------------------------------------------------------
+# ACM hub sizing (tasks/86_acm_sizing.yml)
+# ----------------------------------------------------------------------------
+# Red Hat publishes no sizing table for N managed clusters (ACM 2.10-2.14),
+# so the hub's own usage is measured (df inside the pods that mount each PVC)
+# and projected per managed cluster. Published rules are used where they
+# exist (Assisted Installer storage, the search example, the observability
+# 10/20-cluster test); every number carries its basis.
+
+_QUANTITY_FACTORS = {
+    "Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4, "Pi": 1024 ** 5,
+    "k": 1000, "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4, "P": 1000 ** 5,
+}
+GIB = 1024 ** 3
+
+
+def k8s_quantity_bytes(value: Any) -> Optional[int]:
+    """'100Gi' -> 107374182400, '500M' -> 500000000, '1024' -> 1024.
+    None for anything that isn't a storage quantity."""
+    m = re.match(r"^\s*([0-9.]+)\s*([KkMGTP]i?)?\s*$", str(value or ""))
+    if not m:
+        return None
+    try:
+        return int(float(m.group(1)) * _QUANTITY_FACTORS.get(m.group(2) or "", 1))
+    except ValueError:
+        return None
+
+
+def pvc_mount_targets(pvcs: List[dict], pods: List[dict]) -> List[dict]:
+    """For each PVC, a Running pod and container that mount it, and the mount
+    path - where `df` shows the volume's real usage. pod is "" when no
+    running pod mounts the PVC (usage can't be measured then)."""
+    targets = []
+    running = [p for p in pods or [] if _get(p, "status.phase") == "Running"]
+    for pvc in pvcs or []:
+        ns = _get(pvc, "metadata.namespace", "")
+        name = _get(pvc, "metadata.name", "")
+        target = {
+            "namespace": ns,
+            "pvc": name,
+            "storage_class": _get(pvc, "spec.storageClassName", "") or "",
+            "capacity_bytes": k8s_quantity_bytes(_get(pvc, "status.capacity.storage"))
+                              or k8s_quantity_bytes(_get(pvc, "spec.resources.requests.storage")),
+            "pod": "", "container": "", "path": "",
+        }
+        for pod in running:
+            if _get(pod, "metadata.namespace") != ns:
+                continue
+            volume = next((v["name"] for v in _get(pod, "spec.volumes", []) or []
+                           if _get(v, "persistentVolumeClaim.claimName") == name), None)
+            if not volume:
+                continue
+            for c in _get(pod, "spec.containers", []) or []:
+                mount = next((m for m in c.get("volumeMounts") or [] if m.get("name") == volume), None)
+                if mount:
+                    target.update(pod=_get(pod, "metadata.name"), container=c.get("name", ""),
+                                  path=mount.get("mountPath", ""))
+                    break
+            if target["pod"]:
+                break
+        targets.append(target)
+    return targets
+
+
+def df_usage(stdout: Any) -> Dict[str, int]:
+    """Parse `df -P -k <path>` -> {"size_bytes", "used_bytes"}; {} if unreadable."""
+    lines = [l for l in str(stdout or "").splitlines() if l.strip()]
+    for line in reversed(lines):
+        fields = line.split()
+        if len(fields) >= 6 and fields[1].isdigit() and fields[2].isdigit():
+            return {"size_bytes": int(fields[1]) * 1024, "used_bytes": int(fields[2]) * 1024}
+    return {}
+
+
+def with_df_usage(targets: List[dict], exec_results: List[dict]) -> List[dict]:
+    """pvc_mount_targets() rows plus "used_bytes" from the matching k8s_exec
+    loop result (item = the target), None when it wasn't measured."""
+    used = {}
+    for r in exec_results or []:
+        item = r.get("item") or {}
+        usage = df_usage(r.get("stdout", "")) if not r.get("failed") and not r.get("skipped") else {}
+        if usage:
+            used[(item.get("namespace"), item.get("pvc"))] = usage["used_bytes"]
+    return [dict(t, used_bytes=used.get((t.get("namespace"), t.get("pvc")))) for t in targets or []]
+
+
+# PVC name pattern -> (component key, label, namespace kind)
+_ACM_PVC_COMPONENTS = [
+    ("thanos-receive", "obs_receive", "Observability: thanos-receive"),
+    ("thanos-compact", "obs_compact", "Observability: thanos-compact"),
+    ("thanos-store", "obs_store", "Observability: thanos-store"),
+    ("thanos-rule", "obs_rule", "Observability: thanos-rule"),
+    ("alertmanager", "obs_alertmanager", "Observability: alertmanager"),
+    ("image-service", "ai_image", "Assisted Installer: image storage (ISOs)"),
+    ("postgres", "ai_db", "Assisted Installer: database"),
+    ("assisted-service", "ai_fs", "Assisted Installer: filesystem"),
+    ("search", "search", "Search: database"),
+]
+
+
+def _acm_component(pvc_name: str, namespace: str, namespaces: Dict[str, str]) -> Optional[str]:
+    """Component key of an ACM PVC, or None if it isn't one we size."""
+    if namespace == namespaces.get("observability"):
+        candidates = [c for c in _ACM_PVC_COMPONENTS if c[1].startswith("obs_")]
+    elif namespace == namespaces.get("mce"):
+        candidates = [c for c in _ACM_PVC_COMPONENTS if c[1].startswith("ai_")]
+    elif namespace == namespaces.get("acm"):
+        candidates = [c for c in _ACM_PVC_COMPONENTS if c[1] == "search"]
+    else:
+        return None
+    return next((key for pattern, key, _ in candidates if pattern in pvc_name), None)
+
+
+def _round_up_gib(gib: float, step: int) -> int:
+    return int(-(-max(gib, 0) // step) * step) if gib > 0 else 0
+
+
+def acm_sizing_report(
+    volumes: List[dict],
+    managed_clusters: int,
+    acm_version: str,
+    features: Dict[str, Any],
+    storage_classes: List[dict],
+    nodes: List[dict],
+    settings: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Current ACM hub storage vs managed clusters, and sizes for each tier.
+
+    volumes: pvc_mount_targets() rows, each with "used_bytes" (None when not
+    measured) - from the observability, ACM and MCE namespaces.
+    features: {"observability": bool, "search_cr": bool,
+    "search_storage_class": str, "assisted": bool, "assisted_os_versions": int,
+    "assisted_os_images": int}.
+    settings: acm_sizing_* from group_vars: tiers, max_fill, min_clusters,
+    namespaces, defaults_gib, step_gib.
+
+    Never raises. Every number has a "basis": measured on this hub, a Red Hat
+    rule, a Red Hat test extrapolated, or no published figure."""
+    s = settings or {}
+    tiers = [int(t) for t in s.get("tiers", [25, 50, 100, 150, 200])]
+    max_fill = float(s.get("max_fill", 0.8))
+    min_clusters = int(s.get("min_clusters", 5))
+    step = int(s.get("step_gib", 10))
+    defaults = s.get("defaults_gib", {}) or {}
+    namespaces = s.get("namespaces", {}) or {}
+    n = max(int(managed_clusters or 0), 0)
+    f = features or {}
+    labels = {key: label for _, key, label in _ACM_PVC_COMPONENTS}
+    provisioner_by_sc = {_get(sc, "metadata.name"): _get(sc, "provisioner", "") for sc in storage_classes or []}
+
+    by_component: Dict[str, List[dict]] = {}
+    for v in volumes or []:
+        key = _acm_component(v.get("pvc", ""), v.get("namespace", ""), namespaces)
+        if key:
+            by_component.setdefault(key, []).append(v)
+
+    findings: List[dict] = []
+    components = []
+
+    def theoretical_gib(key: str, clusters: int) -> Optional[tuple]:
+        """(GiB per replica, basis) from a published rule, or None."""
+        if key == "obs_receive":
+            # Red Hat test (install guide, Performance and scalability):
+            # 2 GiB/day at 10 clusters, 3 GiB/day at 20, "multiply by 4".
+            return 4 * (1 + 0.1 * clusters), "Red Hat 10/20-cluster test, extrapolated"
+        if key == "search":
+            # "20Gi might be sufficient for about 200 managed clusters".
+            return 0.1 * clusters, "Red Hat example (20Gi for ~200 clusters), scaled"
+        if key == "ai_fs":
+            versions = int(f.get("assisted_os_versions") or 0)
+            return 0.2 * clusters + 3 * versions, f"Red Hat rule: 200 MB per cluster + 2-3 GiB per OpenShift version ({versions})"
+        if key == "ai_image":
+            images = int(f.get("assisted_os_images") or 0)
+            return 2.0 * images, f"Red Hat rule: 2 GiB per osImages entry ({images})"
+        return None
+
+    fixed = {"obs_rule", "obs_alertmanager"}           # don't grow with clusters
+    constant = {"ai_image"}                            # grows with OS images, not clusters
+    enabled = {
+        "obs_receive": f.get("observability"), "obs_compact": f.get("observability"),
+        "obs_store": f.get("observability"), "obs_rule": f.get("observability"),
+        "obs_alertmanager": f.get("observability"),
+        "search": True, "ai_db": f.get("assisted"), "ai_fs": f.get("assisted"), "ai_image": f.get("assisted"),
+    }
+
+    for key in [k for _, k, _ in _ACM_PVC_COMPONENTS]:
+        vols = by_component.get(key, [])
+        caps = [v.get("capacity_bytes") for v in vols if v.get("capacity_bytes")]
+        used = [v["used_bytes"] for v in vols if v.get("used_bytes") is not None]
+        row = {
+            "key": key, "label": labels[key], "enabled": bool(enabled.get(key)),
+            "replicas": len(vols),
+            "storage_classes": sorted({v.get("storage_class", "") for v in vols if v.get("storage_class")}),
+            "capacity_gib": round(min(caps) / GIB, 1) if caps else None,
+            "used_gib": round(max(used) / GIB, 2) if used else None,
+            "fill_pct": None, "per_cluster_gib": None, "supports": None,
+            "basis": "", "note": "", "recommended": [],
+        }
+        if key == "search" and not vols:
+            if f.get("search_cr"):
+                row["note"] = "emptyDir - the search database is lost on every pod restart"
+                findings.append({"severity": "WARNING", "summary":
+                    "Search database runs on emptyDir (no PVC): it is rebuilt from scratch on every restart. "
+                    "Set spec.dbStorage.storageClassName on the Search CR to give it a PVC."})
+            row["enabled"] = bool(f.get("search_cr"))
+        if caps and used:
+            row["fill_pct"] = round(100.0 * max(used) / min(caps), 1)
+            if row["fill_pct"] > max_fill * 100:
+                findings.append({"severity": "WARNING", "summary":
+                    f"{labels[key]} PVC is {row['fill_pct']}% full ({row['used_gib']} of {row['capacity_gib']} GiB)."})
+        for sc in row["storage_classes"]:
+            if key.startswith("obs_") and provisioner_by_sc.get(sc) == "kubernetes.io/no-provisioner":
+                findings.append({"severity": "WARNING", "summary":
+                    f"{labels[key]} uses local storage ({sc}); Red Hat says observability must not use local storage."})
+
+        projected = None
+        if key in fixed:
+            row["basis"] = "fixed size, doesn't grow with clusters"
+        elif used and n > 0 and key not in constant and key != "ai_fs":
+            per = max(used) / GIB / n
+            row["per_cluster_gib"] = round(per, 3)
+            row["basis"] = "measured on this hub" + (f" (rough: only {n} clusters)" if n < min_clusters else "")
+            if caps and per > 0:
+                row["supports"] = int(min(caps) / GIB * max_fill // per)
+            projected = lambda c, per=per: (per * c, "measured on this hub")
+        if projected is None and key not in fixed:
+            th = theoretical_gib(key, n)
+            if th is not None:
+                row["basis"] = th[1]
+                if key not in constant and caps:
+                    need_now = th[0] / max_fill
+                    if key == "ai_fs" and min(caps) / GIB < need_now:
+                        findings.append({"severity": "WARNING", "summary":
+                            f"{labels[key]} is {round(min(caps) / GIB, 1)} GiB; {th[1]} needs about "
+                            f"{_round_up_gib(need_now, step)} GiB for the current {n} clusters."})
+                projected = lambda c, key=key: theoretical_gib(key, c)
+            else:
+                row["basis"] = row["basis"] or "no published figure; nothing to measure yet"
+        if key == "ai_image" and caps:
+            th = theoretical_gib(key, n)
+            need = max(th[0], float(defaults.get(key, 0)))
+            if min(caps) / GIB < need:
+                findings.append({"severity": "WARNING", "summary":
+                    f"{labels[key]} is {round(min(caps) / GIB, 1)} GiB; {th[1]} and Red Hat's 50Gi minimum need {_round_up_gib(need, step)} GiB."})
+
+        floor = float(defaults.get(key, 0))
+        for t in tiers:
+            if key in fixed:
+                row["recommended"].append({"tier": t, "gib": int(floor), "basis": "default"})
+            elif projected is None:
+                row["recommended"].append({"tier": t, "gib": int(floor) if floor else None,
+                                           "basis": "default; no published figure for this many clusters"})
+            else:
+                gib, basis = projected(t)
+                if key not in constant:
+                    gib = gib / max_fill
+                row["recommended"].append({"tier": t, "gib": max(_round_up_gib(gib, step), int(floor)), "basis": basis})
+        components.append(row)
+
+    measured = [c for c in components if c["supports"] is not None and c["enabled"]]
+    overall = None
+    if measured:
+        limit = min(measured, key=lambda c: c["supports"])
+        overall = {"clusters": limit["supports"], "limited_by": limit["label"]}
+        findings.append({"severity": "INFO", "summary":
+            f"Measured ACM storage supports about {overall['clusters']} managed clusters at "
+            f"{int(max_fill * 100)}% fill (limited by {limit['label']}); managing {n} now."})
+
+    workers = [nd for nd in nodes or []
+               if not _get(nd, "spec.unschedulable", False)
+               and "node-role.kubernetes.io/master" not in (_get(nd, "metadata.labels", {}) or {})
+               and "node-role.kubernetes.io/control-plane" not in (_get(nd, "metadata.labels", {}) or {})]
+    cpu = sum(_cpu_cores(_get(nd, "status.allocatable.cpu")) for nd in workers)
+    mem = sum((k8s_quantity_bytes(_get(nd, "status.allocatable.memory")) or 0) for nd in workers)
+    hub_nodes = {"workers": len(workers), "cpu": round(cpu, 1), "memory_gib": round(mem / GIB, 1)}
+
+    return {
+        "acm_version": acm_version or "", "managed_clusters": n, "tiers": tiers,
+        "max_fill_pct": int(max_fill * 100), "components": components, "supports": overall,
+        "hub_nodes": hub_nodes, "findings": findings,
+    }
+
+
+def _cpu_cores(value: Any) -> float:
+    """'8' -> 8.0, '7500m' -> 7.5."""
+    v = str(value or "0").strip()
+    try:
+        return float(v[:-1]) / 1000 if v.endswith("m") else float(v)
+    except ValueError:
+        return 0.0
+
+
 def survey_settings(options: Any, advanced: Any, flags: Dict[str, Any], allowlist: Dict[str, str]) -> Dict[str, Any]:
     """Turn the AAP survey's "Options" and "Advanced settings" answers into
     variables. Returns {"vars": {name: value}, "applied": [str], "errors": [str]}.
@@ -2436,6 +2728,11 @@ class FilterModule(object):
             "catalog_export_cluster": catalog_export_cluster,
             "ocp_oauth_token_name": ocp_oauth_token_name,
             "survey_settings": survey_settings,
+            "k8s_quantity_bytes": k8s_quantity_bytes,
+            "pvc_mount_targets": pvc_mount_targets,
+            "df_usage": df_usage,
+            "with_df_usage": with_df_usage,
+            "acm_sizing_report": acm_sizing_report,
             "cluster_folder_name": cluster_folder_name,
             "catalog_max_ocp_findings": catalog_max_ocp_findings,
             "md_cell": md_cell,

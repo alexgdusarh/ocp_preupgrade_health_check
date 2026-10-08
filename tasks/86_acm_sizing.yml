@@ -1,0 +1,128 @@
+---
+# ACM hub sizing: is the hub's storage sized for the clusters it manages,
+# and what would 25 / 50 / 100 / 150 / 200 managed clusters need?
+#
+# Red Hat publishes no sizing table or formula for N managed clusters
+# (ACM 2.10-2.14), so this measures the hub: how full each ACM PVC is
+# (`df` inside the pod that mounts it - read-only, same pod exec as the
+# etcd/Ceph checks), divided by today's managed clusters, projected per
+# tier. Published rules are used where they exist:
+#   - Assisted Installer filesystem: 200 MB per cluster + 2-3 GiB per
+#     OpenShift version; image storage: 2 GiB per osImages entry, >= 50Gi
+#   - Search: "20Gi might be sufficient for about 200 managed clusters";
+#     emptyDir (the default) loses the database on every restart
+#   - Observability receive: Red Hat's 10/20-cluster test, only when there
+#     is no usage to measure
+# Every number in the report carries its basis. Hub CPU/memory per cluster
+# count isn't published either, so only the current totals are shown.
+# Settings: acm_sizing_* in group_vars/all.yml.
+- name: Seed ACM sizing report
+  ansible.builtin.set_fact:
+    acm_sizing_data: {}
+
+- name: ACM hub sizing (ACM hub only)
+  when:
+    - acm_enabled | bool
+    - acm_crds_present | default(false) | bool
+    - acm_sizing_enabled | bool
+  block:
+    - name: Get MultiClusterObservability (observability on/off and its settings)
+      kubernetes.core.k8s_info:
+        api_version: observability.open-cluster-management.io/v1beta2
+        kind: MultiClusterObservability
+      register: _acms_mco_raw
+      ignore_errors: true
+
+    - name: Get the Search CR (database on a PVC or emptyDir)
+      kubernetes.core.k8s_info:
+        api_version: search.open-cluster-management.io/v1alpha1
+        kind: Search
+        namespace: "{{ acm_namespace }}"
+      register: _acms_search_raw
+      ignore_errors: true
+
+    - name: Get AgentServiceConfig (Assisted Installer storage and OS images)
+      kubernetes.core.k8s_info:
+        api_version: agent-install.openshift.io/v1beta1
+        kind: AgentServiceConfig
+      register: _acms_asc_raw
+      ignore_errors: true
+
+    - name: Get PVCs in the ACM, observability and MCE namespaces
+      kubernetes.core.k8s_info:
+        kind: PersistentVolumeClaim
+        namespace: "{{ item }}"
+      loop: "{{ _acms_namespaces }}"
+      register: _acms_pvc_raw
+      ignore_errors: true
+
+    - name: Get pods in those namespaces (to find who mounts each PVC)
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ item }}"
+      loop: "{{ _acms_namespaces }}"
+      register: _acms_pod_raw
+      ignore_errors: true
+
+    - name: Get StorageClasses (observability must not use local storage)
+      kubernetes.core.k8s_info:
+        kind: StorageClass
+      register: _acms_sc_raw
+      ignore_errors: true
+
+    - name: Get nodes (hub CPU/memory totals)
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: _acms_nodes_raw
+      ignore_errors: true
+
+    - name: Find the pod and mount path for each PVC
+      ansible.builtin.set_fact:
+        _acms_targets: "{{ (_acms_pvc_raw.results | map(attribute='resources') | map('default', []) | flatten)
+                           | pvc_mount_targets(_acms_pod_raw.results | map(attribute='resources') | map('default', []) | flatten) }}"
+
+    - name: Measure PVC usage (df inside the pod that mounts it, read-only)
+      kubernetes.core.k8s_exec:
+        namespace: "{{ item.namespace }}"
+        pod: "{{ item.pod }}"
+        container: "{{ item.container }}"
+        command: "df -P -k {{ item.path }}"
+      loop: "{{ _acms_targets | selectattr('pod', 'ne', '') | list }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.pvc }}"
+      register: _acms_df
+      ignore_errors: true
+      when: acm_sizing_measure_usage | bool
+
+    - name: Build the ACM sizing report
+      ansible.builtin.set_fact:
+        acm_sizing_data: "{{ (_acms_targets | with_df_usage(_acms_df.results | default([])))
+          | acm_sizing_report(
+              acm_managed_clusters_report | rejectattr('name', 'in', acm_exclude_clusters) | list | length,
+              (acm_mch_report | first | default({})).version | default(''),
+              {
+                'observability': (_acms_mco_raw.resources | default([])) | length > 0,
+                'search_cr': (_acms_search_raw.resources | default([])) | length > 0,
+                'assisted': (_acms_asc_raw.resources | default([])) | length > 0,
+                'assisted_os_versions': _acms_os_images | map(attribute='openshiftVersion') | unique | list | length,
+                'assisted_os_images': _acms_os_images | length,
+              },
+              _acms_sc_raw.resources | default([]),
+              _acms_nodes_raw.resources | default([]),
+              {
+                'tiers': acm_sizing_tiers, 'max_fill': acm_sizing_max_fill | float,
+                'min_clusters': acm_sizing_min_clusters | int, 'step_gib': acm_sizing_step_gib | int,
+                'defaults_gib': acm_sizing_defaults_gib,
+                'namespaces': {'acm': acm_namespace, 'observability': acm_observability_namespace, 'mce': acm_mce_namespace},
+              }) }}"
+      vars:
+        _acms_os_images: "{{ ((_acms_asc_raw.resources | default([]) | first | default({})).spec | default({})).osImages | default([]) }}"
+
+    - name: Append ACM sizing findings
+      ansible.builtin.set_fact:
+        findings: "{{ findings + [{'section': 'ACM hub sizing', 'severity': item.severity, 'summary': item.summary}] }}"
+      loop: "{{ acm_sizing_data.findings | default([]) }}"
+      loop_control:
+        label: "{{ item.summary[:60] }}"
+  vars:
+    _acms_namespaces: "{{ [acm_namespace, acm_observability_namespace, acm_mce_namespace] | unique }}"

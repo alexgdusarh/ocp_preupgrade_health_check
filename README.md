@@ -914,6 +914,56 @@ starting point, not a guarantee.
   it's merged on top of everything else per-cluster, so it can override the
   interpreter, or `acm_cascade_upgrade_channel` specifically for `upgrade_channel`.
 
+### ACM hub sizing
+
+With `acm_enabled: true` on a hub, the report's ACM section also has
+**Hub sizing** (`tasks/86_acm_sizing.yml`, tag `acm_sizing`): is the hub's
+storage sized for the clusters it manages, and what would 25, 50, 100, 150
+and 200 managed clusters need?
+
+Red Hat publishes no sizing table or formula for N managed clusters (checked
+for ACM 2.10-2.14), so the check measures the hub instead:
+
+1. Every PVC in the ACM, observability and MCE namespaces is matched to the
+   running pod that mounts it, and `df -P -k <mount path>` runs in that pod
+   (read-only, the same pod exec as the etcd/Ceph checks).
+2. Usage / today's managed clusters (without `local-cluster`) = usage per
+   cluster. Size x `acm_sizing_max_fill` (80%) / usage per cluster = how many
+   clusters that PVC supports; the lowest component is the hub's limit.
+3. Usage per cluster x each tier / 80%, rounded up to `acm_sizing_step_gib`,
+   never below Red Hat's default, = the recommended size per PVC.
+
+Published rules are used where they exist, and every number in the report
+carries its basis:
+
+| Component | Basis when there's nothing to measure |
+| --- | --- |
+| Observability thanos-receive | Red Hat's 10/20-cluster test (2 then 3 GiB/day, "multiply by 4"), extrapolated |
+| Observability compact / store | Default size; Red Hat publishes no per-cluster figure |
+| Observability rule / alertmanager | Fixed 1Gi; doesn't grow with clusters |
+| Search database | "20Gi might be sufficient for about 200 managed clusters"; WARNING when it runs on emptyDir (the default), which loses the database on every restart |
+| Assisted Installer filesystem | Red Hat rule, always used: 200 MB per cluster + 2-3 GiB per OpenShift version in `AgentServiceConfig.spec.osImages` (at least 100Gi) |
+| Assisted Installer image storage | Red Hat rule, always used: 2 GiB per `osImages` entry, at least 50Gi |
+| Assisted Installer database | Default 10Gi; no published per-cluster figure |
+
+Findings: WARNING when a PVC is over 80% full, when the Assisted Installer
+storage is below Red Hat's rule, when search runs on emptyDir, or when
+observability uses local storage (Red Hat says it must not); INFO with the
+number of clusters the measured storage supports.
+
+Caveats:
+
+- With fewer than `acm_sizing_min_clusters` (5) managed clusters, the
+  per-cluster rate is marked rough.
+- Usage is spread evenly over the clusters; the hub's own data counts
+  towards them, which errs on the large side.
+- Observability's object storage (S3 etc.) isn't a PVC and isn't sized here.
+- Hub CPU/memory: only the current worker totals are shown - Red Hat
+  publishes no figure per cluster count.
+- Needs `pods/exec` in the observability, ACM and MCE namespaces; set
+  `acm_sizing_measure_usage: false` for configured sizes only. Every
+  setting is under "hub sizing" in `group_vars/all.yml`.
+
 ## Deprecated-API-per-namespace caveats
 
 - `APIRequestCount` aggregates the **last 24h** (plus the current hour); it
@@ -970,6 +1020,7 @@ at a real cluster.
 │   ├── 80_openshift_virtualization.yml
 │   ├── 85_acm.yml                        # ACM hub health, managed-cluster inventory, cascade
 │   ├── 85a_acm_wait_msa_secret.yml       # included per cluster from 85
+│   ├── 86_acm_sizing.yml                 # ACM hub PVC sizing vs managed clusters, per-tier recommendations
 │   ├── 87_odf.yml                        # OpenShift Data Foundation (ODF) + Ceph/OSD checks
 │   ├── 88_cluster_operators_installed.yml  # -> outputs/<cluster>/operators/cluster_operators_installed.json + .md
 │   ├── 89_catalog_opm_render.yml         # per-catalog opm render -> outputs/<cluster>/operators/<catalog>_<tag>.json

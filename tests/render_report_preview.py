@@ -19,7 +19,7 @@ import jinja2  # noqa: E402
 import ocp_health_filters as f  # noqa: E402
 import fixtures as fx  # noqa: E402
 
-HERE = os.path.dirname(__file__)
+HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(HERE, "..", "templates")
 OUT_DIR = os.path.join(HERE, "preview_out")
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -49,6 +49,12 @@ odf_cephcluster_report = f.cephcluster_report(fx.CEPHCLUSTER_WARN)
 ceph_status_report_data = f.ceph_status_report(fx.CEPH_STATUS_JSON_WARN_OSD_DOWN)
 acm_mch_report = f.acm_hub_report(fx.MCH_RUNNING)
 acm_managed_clusters_report = f.acm_managed_cluster_report(fx.MANAGED_CLUSTERS)
+_acms_targets = f.pvc_mount_targets(fx.ACM_SIZING_PVCS, fx.ACM_SIZING_PODS)
+acm_sizing_data = f.acm_sizing_report(
+    f.with_df_usage(_acms_targets, [
+        {"item": t, "stdout": fx.acm_df_stdout(fx.ACM_SIZING_USED_GIB[t["pvc"]], t["capacity_bytes"] / fx.GIB)}
+        for t in _acms_targets if t["pod"] and t["pvc"] in fx.ACM_SIZING_USED_GIB]),
+    30, "2.12.3", fx.ACM_SIZING_FEATURES, fx.ACM_SIZING_STORAGECLASSES, fx.ACM_SIZING_NODES, fx.ACM_SIZING_SETTINGS)
 acm_cascade_targets = f.acm_resolve_cascade_targets(
     fx.MANAGED_CLUSTERS, acm_managed_clusters_report, fx.ACM_HIVE_SECRET_RESULTS, fx.ACM_MSA_SECRET_RESULTS,
     ["local-cluster"], True, False, "",
@@ -196,6 +202,7 @@ context = dict(
     acm_crds_present=True,
     acm_mch_report=acm_mch_report,
     acm_managed_clusters_report=acm_managed_clusters_report,
+    acm_sizing_data=acm_sizing_data,
     acm_cascade_enabled=True,
     acm_cascade_targets=acm_cascade_targets,
     acm_cascade_results=acm_cascade_results,
