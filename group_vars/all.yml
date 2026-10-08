@@ -207,6 +207,9 @@ acm_sizing_defaults_gib:
   ai_fs: 100
   ai_image: 50
 
+# The playbook each cascaded child runs: this project's playbook.yml, or
+# playbook.yaml if the file was renamed. Set a path to override.
+acm_cascade_playbook: "{{ lookup('ansible.builtin.first_found', ['playbook.yml', 'playbook.yaml'], paths=[playbook_dir]) }}"
 acm_cascade_enabled: false          # false = inventory/health only, no credentials touched, no writes
 acm_cascade_report_dir: "{{ report_output_dir }}/acm-managed-clusters"
 acm_cascade_fail_on_critical: false # a spoke's CRITICAL findings show up in the cascade summary either
