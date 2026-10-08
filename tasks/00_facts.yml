@@ -101,3 +101,5 @@
   ansible.builtin.set_fact:
     findings: []
 
+- name: Apply the AAP survey's options and advanced settings (no-op outside AAP)
+  ansible.builtin.include_tasks: tasks/02_survey_options.yml

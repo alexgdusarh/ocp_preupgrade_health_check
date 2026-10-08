@@ -15,6 +15,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 SA_USERNAME_RE = re.compile(r"^system:serviceaccount:([^:]+):(.+)$")
 
 
@@ -1840,6 +1842,66 @@ def cluster_folder_name(infrastructure_name: Any, fallback: Any = "cluster") -> 
     return re.sub(r"-[a-z0-9]{5,6}$", "", name) or name
 
 
+def survey_settings(options: Any, advanced: Any, flags: Dict[str, Any], allowlist: Dict[str, str]) -> Dict[str, Any]:
+    """Turn the AAP survey's "Options" and "Advanced settings" answers into
+    variables. Returns {"vars": {name: value}, "applied": [str], "errors": [str]}.
+
+    options: the ticked labels of the multi-select - a list, or the
+    newline-separated string AAP uses for defaults. Each must be a key of
+    `flags`, whose value is the dict of variables that label sets.
+    advanced: `key: value` lines (YAML) or an already-parsed dict. Only
+    names in `allowlist` (name -> "int" | "float") are accepted; numbers
+    must be above 0, and *_pct values at most 1. Booleans are not numbers.
+    Never raises: every problem is a message in "errors"."""
+    result: Dict[str, Any] = {"vars": {}, "applied": [], "errors": []}
+    flags = flags or {}
+    allowlist = allowlist or {}
+
+    if isinstance(options, str):
+        options = [o.strip() for o in options.splitlines()]
+    for label in [o for o in (options or []) if str(o).strip()]:
+        if label not in flags:
+            result["errors"].append(f"unknown option '{label}' (known: {', '.join(flags)})")
+            continue
+        result["vars"].update(flags[label])
+        result["applied"].append(label)
+
+    if isinstance(advanced, str):
+        if not advanced.strip():
+            advanced = {}
+        else:
+            try:
+                advanced = yaml.safe_load(advanced)
+            except yaml.YAMLError as exc:
+                result["errors"].append(f"advanced settings are not valid 'key: value' lines: {str(exc).splitlines()[0]}")
+                return result
+    if advanced is None:
+        advanced = {}
+    if not isinstance(advanced, dict):
+        result["errors"].append("advanced settings must be 'key: value' lines")
+        return result
+
+    for name, value in advanced.items():
+        kind = allowlist.get(name)
+        if kind is None:
+            result["errors"].append(f"'{name}' can't be set here (allowed: {', '.join(allowlist)})")
+            continue
+        is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        if kind == "int" and not (is_number and float(value).is_integer()):
+            result["errors"].append(f"{name} must be a whole number, got {value!r}")
+            continue
+        if kind == "float" and not is_number:
+            result["errors"].append(f"{name} must be a number, got {value!r}")
+            continue
+        if value <= 0 or (name.endswith("_pct") and value > 1):
+            limit = "between 0 and 1" if name.endswith("_pct") else "above 0"
+            result["errors"].append(f"{name} must be {limit}, got {value!r}")
+            continue
+        result["vars"][name] = int(value) if kind == "int" else float(value)
+        result["applied"].append(f"{name}={result['vars'][name]}")
+    return result
+
+
 def ocp_oauth_token_name(token: Any) -> str:
     """Name of the OAuthAccessToken/UserOAuthAccessToken object for an
     OpenShift access token, used to revoke it. OpenShift 4.6+ tokens look
@@ -2373,6 +2435,7 @@ class FilterModule(object):
             "catalog_mirror_report": catalog_mirror_report,
             "catalog_export_cluster": catalog_export_cluster,
             "ocp_oauth_token_name": ocp_oauth_token_name,
+            "survey_settings": survey_settings,
             "cluster_folder_name": cluster_folder_name,
             "catalog_max_ocp_findings": catalog_max_ocp_findings,
             "md_cell": md_cell,

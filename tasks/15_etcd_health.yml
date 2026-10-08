@@ -28,7 +28,7 @@
 
 - name: Seed etcd report variables so the templates render even if exec fails entirely
   ansible.builtin.set_fact:
-    etcd_health_data: "{{ (_etcd_pods_raw.resources | default([])) | etcd_health_report([], [], '', etcd_quota_bytes, etcd_db_warn_pct, etcd_db_crit_pct, etcd_took_warn_ms, etcd_took_crit_ms) }}"
+    etcd_health_data: "{{ (_etcd_pods_raw.resources | default([])) | etcd_health_report([], [], '', (etcd_quota_bytes | int), (etcd_db_warn_pct | float), (etcd_db_crit_pct | float), (etcd_took_warn_ms | int), (etcd_took_crit_ms | int)) }}"
     etcdctl_health_raw: "(not yet collected)"
     etcdctl_status_raw: "(not yet collected)"
     etcdctl_alarm_raw: "(not yet collected)"
@@ -78,7 +78,7 @@
 
     - name: Build the etcd health report
       ansible.builtin.set_fact:
-        etcd_health_data: "{{ (_etcd_pods_raw.resources | default([])) | etcd_health_report(etcdctl_health_raw, etcdctl_status_raw, ('' if etcdctl_alarm_raw.startswith('(') else etcdctl_alarm_raw), etcd_quota_bytes, etcd_db_warn_pct, etcd_db_crit_pct, etcd_took_warn_ms, etcd_took_crit_ms) }}"
+        etcd_health_data: "{{ (_etcd_pods_raw.resources | default([])) | etcd_health_report(etcdctl_health_raw, etcdctl_status_raw, ('' if etcdctl_alarm_raw.startswith('(') else etcdctl_alarm_raw), (etcd_quota_bytes | int), (etcd_db_warn_pct | float), (etcd_db_crit_pct | float), (etcd_took_warn_ms | int), (etcd_took_crit_ms | int)) }}"
       # The raw etcdctl "-w json" text is handed straight to the filter plugin,
       # which does its own JSON parsing/error handling in plain Python
       # (_safe_json_list in filter_plugins/ocp_health_filters.py). Deliberately
@@ -119,7 +119,7 @@
     findings: "{{ findings + [{
         'section': 'etcd db size (' ~ item.endpoint ~ ')',
         'severity': item.severity,
-        'summary': item.endpoint ~ ': dbSize=' ~ item.db_size_mb ~ 'MB (' ~ item.db_quota_pct ~ '% of ' ~ (etcd_quota_bytes // 1048576) ~ 'MB quota)' ~ (' - isLearner=true' if item.is_learner else ''),
+        'summary': item.endpoint ~ ': dbSize=' ~ item.db_size_mb ~ 'MB (' ~ item.db_quota_pct ~ '% of ' ~ ((etcd_quota_bytes | int) // 1048576) ~ 'MB quota)' ~ (' - isLearner=true' if item.is_learner else ''),
       }] }}"
   loop: "{{ etcd_health_data.status | rejectattr('severity', 'equalto', 'OK') | list }}"
   loop_control:

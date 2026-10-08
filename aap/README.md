@@ -22,6 +22,47 @@ never to an OpenShift cluster. Running it again updates the same objects
 | OpenShift password | `ocp_password` | Password | Stored encrypted, shown as `$encrypted$`; exchanged once for an OAuth token, which is revoked at the end of the run |
 | Upgrade channel | `upgrade_channel` | Multiple choice | `eus`, `stable`, `fast` (default `eus`) |
 | Target version | `upgrade_target_version` | Text, optional | Exact `x.y.z`, e.g. `4.20.34`; blank = the channel's latest |
+| Options | `survey_options` | Multi-select, optional | Plain-language switches, see below; "Skip ODF checks" is ticked by default |
+| Advanced settings | `survey_advanced` | Text box, optional | `name: value` lines for a few allowlisted thresholds, see below |
+
+### Options
+
+Each ticked option sets variables for that run only:
+
+| Option | Sets |
+| --- | --- |
+| Skip Portworx checks | `portworx_enabled: false` |
+| Skip OpenShift Virtualization checks | `cnv_enabled: false` |
+| Skip ODF checks (ticked by default) | `odf_enabled: false` |
+| Skip CRD finalizer scan (faster) | `finalizer_scan_include_crs: false` |
+| Don't fail the job on CRITICAL | `fail_on_critical: false` |
+| ACM hub: check hub and managed clusters | `acm_enabled: true` |
+
+### Advanced settings
+
+One `name: value` per line, for example:
+
+```yaml
+finalizer_scan_stuck_after_seconds: 1800
+etcd_db_warn_pct: 0.7
+```
+
+Only these names are accepted: `etcd_quota_bytes`, `etcd_db_warn_pct`,
+`etcd_db_crit_pct`, `etcd_took_warn_ms`, `etcd_took_crit_ms`,
+`finalizer_scan_stuck_after_seconds`, `api_report_min_requests`,
+`upgrade_path_timeout`. Values must be numbers above 0 (`*_pct` between 0
+and 1). Anything else - a different variable, a typo, text instead of a
+number - stops the job at the start with a message naming the problem, so
+the box can't change the cluster, the login or certificate checks.
+
+Both lists live in `group_vars/all.yml` (`survey_option_flags`,
+`survey_option_defaults`, `survey_advanced_allowlist`): edit them there and
+re-run this playbook to update the survey. Whatever was chosen is listed in
+the report as an INFO finding ("Run options").
+
+AAP surveys can't show a question only when another answer is picked, so
+both questions are always visible; leaving them as they are runs the
+default checks.
 
 Every launch also gets the fixed extra vars in `aap_job_extra_vars`
 (`ocp_auth_method: password`, `ocp_validate_certs: true`).

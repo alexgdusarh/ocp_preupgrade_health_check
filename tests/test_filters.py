@@ -596,6 +596,33 @@ check("explicit major.minor target is accepted", f.catalog_export_cluster("4.18.
 check("target not newer than current -> error, not a crash", "error" in f.catalog_export_cluster("4.18.28", "4.18.30"))
 check("unparseable current version -> error, not a crash", "error" in f.catalog_export_cluster(""))
 
+# ---- survey_settings -------------------------------------------------------------
+_flags = {"Skip ODF checks": {"odf_enabled": False}, "Don't fail the job on CRITICAL": {"fail_on_critical": False}}
+_allow = {"etcd_db_warn_pct": "float", "finalizer_scan_stuck_after_seconds": "int"}
+r = f.survey_settings(["Skip ODF checks"], "", _flags, _allow)
+check("ticked option -> its variables, no errors", r["vars"] == {"odf_enabled": False} and r["errors"] == [])
+r = f.survey_settings("Skip ODF checks\nDon't fail the job on CRITICAL", None, _flags, _allow)
+check("newline-separated options (AAP default format) are split", r["vars"] == {"odf_enabled": False, "fail_on_critical": False})
+check("nothing chosen -> nothing set", f.survey_settings(None, None, _flags, _allow) == {"vars": {}, "applied": [], "errors": []})
+r = f.survey_settings([], "finalizer_scan_stuck_after_seconds: 1800\netcd_db_warn_pct: 0.7", _flags, _allow)
+check("allowlisted advanced settings are applied with their type",
+      r["vars"] == {"finalizer_scan_stuck_after_seconds": 1800, "etcd_db_warn_pct": 0.7}
+      and isinstance(r["vars"]["finalizer_scan_stuck_after_seconds"], int) and r["errors"] == [])
+r = f.survey_settings([], "ocp_api_host: https://evil.example.com", _flags, _allow)
+check("a variable outside the allowlist is rejected, not applied", r["vars"] == {} and "can't be set here" in r["errors"][0])
+check("ocp_validate_certs can't be turned off from the box",
+      "can't be set here" in f.survey_settings([], "ocp_validate_certs: false", _flags, _allow)["errors"][0])
+check("a *_pct above 1 is rejected", "between 0 and 1" in f.survey_settings([], "etcd_db_warn_pct: 80", _flags, _allow)["errors"][0])
+check("a non-number is rejected", "whole number" in f.survey_settings([], "finalizer_scan_stuck_after_seconds: soon", _flags, _allow)["errors"][0])
+check("a boolean is not a number", "whole number" in f.survey_settings([], "finalizer_scan_stuck_after_seconds: true", _flags, _allow)["errors"][0])
+check("zero / negative is rejected", "above 0" in f.survey_settings([], "finalizer_scan_stuck_after_seconds: 0", _flags, _allow)["errors"][0])
+check("a fractional int is rejected", "whole number" in f.survey_settings([], "finalizer_scan_stuck_after_seconds: 1.5", _flags, _allow)["errors"][0])
+check("broken YAML -> a clear error, not a crash", "not valid" in f.survey_settings([], "a: [", _flags, _allow)["errors"][0])
+check("a plain sentence instead of key: value -> rejected", "key: value" in f.survey_settings([], "make it faster", _flags, _allow)["errors"][0])
+check("an unknown option label is rejected", "unknown option" in f.survey_settings(["Skip everything"], "", _flags, _allow)["errors"][0])
+check("applied lists labels and settings for the report",
+      f.survey_settings(["Skip ODF checks"], "etcd_db_warn_pct: 0.7", _flags, _allow)["applied"] == ["Skip ODF checks", "etcd_db_warn_pct=0.7"])
+
 # ---- ocp_oauth_token_name ------------------------------------------------------
 # Expected value computed independently: sha256 of the part after "sha256~",
 # base64url without padding (how oc and redhat.openshift.openshift_auth name it).
