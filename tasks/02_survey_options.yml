@@ -1,0 +1,31 @@
+---
+# Apply the AAP survey's "Options" (survey_options, multi-select) and
+# "Advanced settings" (survey_advanced, `key: value` lines) - see
+# survey_option_flags / survey_advanced_allowlist in group_vars/all.yml.
+# Both are optional and absent outside AAP, so a command-line run is
+# unaffected.
+#
+# set_fact outranks group_vars, so these override the defaults - but not
+# anything passed as an extra var (e.g. the job template's fixed
+# ocp_auth_method), which always wins.
+- name: Check the survey options and advanced settings
+  ansible.builtin.set_fact:
+    _survey: "{{ survey_options | default([]) | survey_settings(survey_advanced | default(''), survey_option_flags, survey_advanced_allowlist) }}"
+
+- name: Stop on invalid survey answers
+  ansible.builtin.assert:
+    that: _survey.errors | length == 0
+    fail_msg: "Survey answers rejected: {{ _survey.errors | join('; ') }}"
+    quiet: true
+
+- name: Apply them
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ _survey.vars | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+- name: Note the survey choices in the report
+  ansible.builtin.set_fact:
+    findings: "{{ findings + [{'section': 'Run options', 'severity': 'INFO', 'summary': 'Set at launch: ' ~ (_survey.applied | join(', '))}] }}"
+  when: _survey.applied | length > 0

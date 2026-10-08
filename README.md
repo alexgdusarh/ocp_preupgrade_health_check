@@ -955,6 +955,7 @@ at a real cluster.
 ├── tasks/
 │   ├── 00_facts.yml                      # connection setup, findings collector
 │   ├── 01_oauth_login.yml                # password method: username/password -> OAuth token
+│   ├── 02_survey_options.yml             # applies the AAP survey's Options / Advanced settings
 │   ├── 10_clusterversion.yml
 │   ├── 11_upgrade_path.yml               # upgrade_channel resolution (EUS-aware) + Cincinnati graph path
 │   ├── 15_etcd_health.yml

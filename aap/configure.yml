@@ -24,6 +24,10 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  # survey_option_flags / survey_option_defaults / survey_advanced_allowlist:
+  # the same definitions the health check uses to apply the answers.
+  vars_files:
+    - ../group_vars/all.yml
 
   pre_tasks:
     - name: Stop on unreplaced placeholders
@@ -128,5 +132,20 @@
               required: false
               min: 0
               max: 32
+            - variable: survey_options
+              question_name: Options
+              question_description: Tick to change what this run checks (labels and effects in group_vars/all.yml)
+              type: multiselect
+              choices: "{{ survey_option_flags.keys() | list }}"
+              default: "{{ survey_option_defaults | join('\n') }}"
+              required: false
+            - variable: survey_advanced
+              question_name: Advanced settings (optional)
+              question_description: "One 'name: value' per line, e.g. finalizer_scan_stuck_after_seconds: 1800. Allowed: {{ survey_advanced_allowlist.keys() | join(', ') }}"
+              type: textarea
+              default: ""
+              required: false
+              min: 0
+              max: 2000
         ask_verbosity_on_launch: true
         state: present
