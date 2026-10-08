@@ -118,6 +118,13 @@
               tags: [acm]
           tags: [acm]
 
+        - name: 86 - ACM hub sizing (PVCs vs managed clusters, recommendations per tier)
+          ansible.builtin.include_tasks:
+            file: tasks/86_acm_sizing.yml
+            apply:
+              tags: [acm, acm_sizing]
+          tags: [acm, acm_sizing]
+
         - name: 87 - OpenShift Data Foundation (ODF/OCS) + Ceph storage checks
           ansible.builtin.include_tasks:
             file: tasks/87_odf.yml

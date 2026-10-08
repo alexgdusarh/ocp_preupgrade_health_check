@@ -181,6 +181,32 @@ acm_exclude_clusters: ["local-cluster"]    # ACM lists the hub as a ManagedClust
                                             # table either way, just skipped by the cascade.
 
 # --- cascade: actually run the full check against every managed cluster -----
+# --- hub sizing (tasks/86_acm_sizing.yml) -------------------------------------
+# Measures how full each ACM PVC is (df inside the pod that mounts it, read-only)
+# and projects it per managed cluster: how many clusters today's storage
+# supports, and sizes for each tier. Red Hat publishes no sizing table for N
+# clusters (ACM 2.10-2.14); published rules fill in where they exist and every
+# number in the report says which basis it came from.
+acm_sizing_enabled: true
+acm_sizing_measure_usage: true      # false = configured sizes only, no pod exec
+acm_sizing_tiers: [25, 50, 100, 150, 200]
+acm_sizing_max_fill: 0.8            # size so PVCs stay below 80% full
+acm_sizing_min_clusters: 5          # below this, a measured per-cluster rate is marked rough
+acm_sizing_step_gib: 10             # round recommendations up to this step
+acm_observability_namespace: "open-cluster-management-observability"
+acm_mce_namespace: "multicluster-engine"
+# Never recommend less than these (Red Hat defaults / documented minimums, GiB).
+acm_sizing_defaults_gib:
+  obs_receive: 100
+  obs_compact: 100
+  obs_store: 10
+  obs_rule: 1
+  obs_alertmanager: 1
+  search: 10
+  ai_db: 10
+  ai_fs: 100
+  ai_image: 50
+
 acm_cascade_enabled: false          # false = inventory/health only, no credentials touched, no writes
 acm_cascade_report_dir: "{{ report_output_dir }}/acm-managed-clusters"
 acm_cascade_fail_on_critical: false # a spoke's CRITICAL findings show up in the cascade summary either

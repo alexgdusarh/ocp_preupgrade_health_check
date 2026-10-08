@@ -332,6 +332,35 @@ _ACM CRDs not found on this cluster - this doesn't look like an ACM hub._
 | {{ c.name }} | {{ c.available_status }} | {{ c.accepted }} | {{ c.joined }} | {{ c.openshift_version }} | {{ c.kubernetes_version }} | {{ c.cloud }} | **{{ c.severity }}** |
 {% endfor %}
 
+{% set sz = acm_sizing_data | default({}) %}
+{% if sz.components is defined %}
+### Hub sizing
+
+ACM {{ sz.acm_version or 'version unknown' }} managing **{{ sz.managed_clusters }}** cluster(s).
+{% if sz.supports %}Measured storage supports about **{{ sz.supports.clusters }}** managed clusters at {{ sz.max_fill_pct }}% fill, limited by {{ sz.supports.limited_by }}.
+{% else %}No usage could be measured, so the recommendations use Red Hat's published rules and defaults only.
+{% endif %}
+Red Hat publishes no sizing table for N managed clusters; each number shows its basis.
+Hub workers: {{ sz.hub_nodes.workers }} node(s), {{ sz.hub_nodes.cpu }} CPU / {{ sz.hub_nodes.memory_gib }} GiB allocatable.
+
+| Component | PVCs | Size each | Used (max) | Fill | Per cluster | Supports | Basis |
+|---|---|---|---|---|---|---|---|
+{% for c in sz.components %}
+| {{ (c.label ~ ('' if c.enabled else ' (not in use)') ~ ((' - ' ~ c.note) if c.note else '')) | md_cell }} | {{ c.replicas }} | {{ (c.capacity_gib ~ ' GiB') if c.capacity_gib is not none else '-' }} | {{ (c.used_gib ~ ' GiB') if c.used_gib is not none else '-' }} | {{ (c.fill_pct ~ '%') if c.fill_pct is not none else '-' }} | {{ (c.per_cluster_gib ~ ' GiB') if c.per_cluster_gib is not none else '-' }} | {{ ('~' ~ c.supports) if c.supports is not none else '-' }} | {{ c.basis | md_cell }} |
+{% endfor %}
+
+Recommended size per PVC (GiB, {{ sz.max_fill_pct }}% max fill; **bold** = larger than today):
+
+| Component | Now |{% for t in sz.tiers %} {{ t }} clusters |{% endfor %}
+
+|---|---|{% for t in sz.tiers %}---|{% endfor %}
+
+{% for c in sz.components %}
+| {{ (c.label ~ ('' if c.enabled else ' (if enabled)')) | md_cell }} | {{ c.capacity_gib if c.capacity_gib is not none else '-' }} |{% for r in c.recommended %} {% if r.gib is none %}-{% elif c.capacity_gib is not none and r.gib > c.capacity_gib %}**{{ r.gib }}**{% else %}{{ r.gib }}{% endif %} |{% endfor %}
+
+{% endfor %}
+
+{% endif %}
 {% if not acm_cascade_enabled %}
 _Cascade run skipped (acm_cascade_enabled=false) - inventory/health only above. Set acm_cascade_enabled=true to run the full check against every managed cluster and generate a separate report for each._
 {% else %}
