@@ -158,7 +158,7 @@ ansible --version                        # should show core 2.16+, jinja 3.1+ an
 
 To run it as an AAP 2.4 job template instead, AAP's default execution
 environment (`ee-supported-rhel8`) already has everything the playbook needs;
-`aap/configure.yml` creates the project, inventory and job template with its
+`aap/configure.yaml` creates the project, inventory and job template with its
 survey (directions: `aap/README.md`). `execution-environment.yml` / `execution-environment.txt` build an
 optional custom EE, for pinning your own versions or as a reference.
 
@@ -1035,9 +1035,9 @@ at a real cluster.
 │   ├── cluster_operators_installed.md.j2
 │   └── fonts/                            # Red Hat fonts embedded in the HTML report (SIL OFL 1.1)
 ├── aap/
-│   ├── README.md                         # how to run configure.yml
-│   ├── configure.yml                     # creates the AAP project, inventory and job template + survey
-│   └── vars.yml                          # placeholders for configure.yml
+│   ├── README.md                         # how to run configure.yaml
+│   ├── configure.yaml                    # creates the AAP project, inventory and job template + survey
+│   └── vars.yaml                         # settings for configure.yaml (placeholders)
 ├── execution-environment.yml             # optional custom AAP execution environment
 ├── execution-environment.txt             # how to build, push and register it
 ├── extras/

@@ -4,29 +4,33 @@
 # with a survey (cluster, username, password, channel, target version).
 # Safe to re-run: each object is matched by name and updated in place.
 #
-# Full directions: aap/README.md. Settings: copy aap/vars.yml (placeholders
-# marked CHANGE-ME) to aap/vars.local.yml, which git ignores, and fill it in.
-# Connection, from environment variables only - never put the token in a file
-# in this repository:
+# Settings: aap/vars.yaml, loaded automatically (vars_files below). Replace
+# its CHANGE-ME placeholders; the play refuses to run until they are gone. A
+# value passed with -e still wins, e.g. -e aap_playbook=folder/playbook.yaml.
+# Connection, from environment variables only - never put the token in a file:
 #   export CONTROLLER_HOST=https://aap.example.com
 #   read -rsp 'AAP token: ' CONTROLLER_OAUTH_TOKEN; echo; export CONTROLLER_OAUTH_TOKEN
 #   export CONTROLLER_VERIFY_SSL=true      # the default; keep it on
-#   ansible-playbook aap/configure.yml -e @aap/vars.local.yml
+#   ansible-playbook aap/configure.yaml
 #   unset CONTROLLER_OAUTH_TOKEN
 # The token needs admin rights on aap_organization (AAP UI: Users > your
-# user > Tokens > Add, scope Write).
+# user > Tokens > Add, scope Write). Full directions: aap/README.md.
 #
-# Modules come from ansible.controller, which is in AAP's ee-supported
-# image. Outside it, `ansible-galaxy collection install awx.awx` gives the
-# same modules from public Galaxy - change the ansible.controller. prefix
-# below to awx.awx. to use them.
+# Modules: ansible.controller (in AAP's ee-supported image) or awx.awx (public
+# Galaxy, same modules) - whichever is installed; see `collections:` below.
 - name: Configure AAP for the OpenShift pre-upgrade health check
   hosts: localhost
   connection: local
   gather_facts: false
-  # survey_option_flags / survey_option_defaults / survey_advanced_allowlist:
-  # the same definitions the health check uses to apply the answers.
+  # Short module names (project, inventory, host, job_template) are looked up
+  # in these collections, first one installed wins.
+  collections:
+    - ansible.controller
+    - awx.awx
   vars_files:
+    - vars.yaml               # this playbook's settings (placeholders: CHANGE-ME)
+    # survey_option_flags / survey_option_defaults / survey_advanced_allowlist:
+    # the same definitions the health check uses to apply the answers.
     - ../group_vars/all.yml
 
   pre_tasks:
@@ -38,7 +42,7 @@
           - _placeholders | length == 0
         fail_msg: >-
           Set CONTROLLER_HOST and CONTROLLER_OAUTH_TOKEN, and replace the CHANGE-ME
-          values in aap/vars.yml{{ (': ' ~ (_placeholders | join(', '))) if _placeholders else '' }}.
+          values in aap/vars.yaml{{ (': ' ~ (_placeholders | join(', '))) if _placeholders else '' }}.
         quiet: true
       vars:
         _placeholders: >-
@@ -47,7 +51,7 @@
 
   tasks:
     - name: Project (pulls this repository)
-      ansible.controller.project:
+      project:
         name: "{{ aap_project_name }}"
         organization: "{{ aap_organization }}"
         scm_type: git
@@ -60,7 +64,7 @@
         wait: true
 
     - name: Inventory
-      ansible.controller.inventory:
+      inventory:
         name: "{{ aap_inventory_name }}"
         organization: "{{ aap_organization }}"
         description: localhost only - the playbook talks to clusters over their API
@@ -68,7 +72,7 @@
 
     # Explicit localhost, so AAP runs the play with the EE's own Python.
     - name: Inventory host localhost
-      ansible.controller.host:
+      host:
         name: localhost
         inventory: "{{ aap_inventory_name }}"
         variables:
@@ -77,7 +81,7 @@
         state: present
 
     - name: Job template with the launch survey
-      ansible.controller.job_template:
+      job_template:
         name: "{{ aap_job_template_name }}"
         organization: "{{ aap_organization }}"
         job_type: run

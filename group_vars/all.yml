@@ -365,11 +365,11 @@ report_basename: "ocp-preupgrade-health-{{ cluster_id_short | default('cluster')
 fail_on_critical: true              # fail the play at the end if critical findings were recorded
 
 # -----------------------------------------------------------------------------
-# AAP survey: "Options" and "Advanced settings" (aap/configure.yml builds the
+# AAP survey: "Options" and "Advanced settings" (aap/configure.yaml builds the
 # survey from these two, tasks/02_survey_options.yml applies the answers)
 # -----------------------------------------------------------------------------
 # survey_options (multi-select): each ticked label sets these variables.
-# Changing a label here changes the survey after the next aap/configure.yml run.
+# Changing a label here changes the survey after the next aap/configure.yaml run.
 survey_option_flags:
   "Skip Portworx checks": {portworx_enabled: false}
   "Skip OpenShift Virtualization checks": {cnv_enabled: false}
