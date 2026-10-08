@@ -4,13 +4,14 @@
 # with a survey (cluster, username, password, channel, target version).
 # Safe to re-run: each object is matched by name and updated in place.
 #
-# Settings: aap/vars.yml (placeholders marked CHANGE-ME).
+# Full directions: aap/README.md. Settings: copy aap/vars.yml (placeholders
+# marked CHANGE-ME) to aap/vars.local.yml, which git ignores, and fill it in.
 # Connection, from environment variables only - never put the token in a file
 # in this repository:
 #   export CONTROLLER_HOST=https://aap.example.com
 #   read -rsp 'AAP token: ' CONTROLLER_OAUTH_TOKEN; echo; export CONTROLLER_OAUTH_TOKEN
 #   export CONTROLLER_VERIFY_SSL=true      # the default; keep it on
-#   ansible-playbook aap/configure.yml -e @aap/vars.yml
+#   ansible-playbook aap/configure.yml -e @aap/vars.local.yml
 #   unset CONTROLLER_OAUTH_TOKEN
 # The token needs admin rights on aap_organization (AAP UI: Users > your
 # user > Tokens > Add, scope Write).
