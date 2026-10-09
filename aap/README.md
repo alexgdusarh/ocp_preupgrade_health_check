@@ -55,9 +55,11 @@ and 1). Anything else - a different variable, a typo, text instead of a
 number - stops the job at the start with a message naming the problem, so
 the box can't change the cluster, the login or certificate checks.
 
-Both lists live in `group_vars/all.yml` (`survey_option_flags`,
+Both lists live in `aap/vars.yaml` (`survey_option_flags`,
 `survey_option_defaults`, `survey_advanced_allowlist`): edit them there and
-re-run this playbook to update the survey. Whatever was chosen is listed in
+re-run this playbook to update the survey. The flag map and the allowlist
+are also passed to the job template as extra vars, so the health check
+applies the answers with the same definitions. Whatever was chosen is listed in
 the report as an INFO finding ("Run options").
 
 AAP surveys can't show a question only when another answer is picked, so
