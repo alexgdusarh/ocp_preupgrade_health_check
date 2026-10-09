@@ -137,58 +137,11 @@
           ansible_python_interpreter: !unsafe "{{ ansible_playbook_python }}"
         state: present
 
-    # --- optional: OpenShift login from an AAP credential (aap_ocp_credential) ---
-    # Either an existing Machine credential (its -u/--ask-pass login is read by
-    # action_plugins/ocp_connection_login.py) - then nothing is created here -
-    # or, with aap_ocp_credential_create, a credential of the type below, which
-    # injects username/password as OCP_USERNAME / OCP_PASSWORD env vars.
-    - name: Credential type "{{ aap_ocp_credential_type }}" (username/password -> OCP_USERNAME/OCP_PASSWORD)
-      credential_type:
-        name: "{{ aap_ocp_credential_type }}"
-        description: OpenShift username/password for the pre-upgrade health check (OAuth login, token revoked after the run)
-        kind: cloud
-        inputs:
-          fields:
-            - {id: username, type: string, label: OpenShift username}
-            - {id: password, type: string, label: OpenShift password, secret: true}
-          required: [username, password]
-        injectors:
-          env:
-            OCP_USERNAME: !unsafe "{{ username }}"
-            OCP_PASSWORD: !unsafe "{{ password }}"
-        state: present
-      when:
-        - aap_ocp_credential | length > 0
-        - aap_ocp_credential_create | bool
-
-    - name: Stop if the credential's password isn't in AAP_OCP_PASSWORD
-      ansible.builtin.assert:
-        that:
-          - aap_ocp_username | length > 0
-          - lookup('env', 'AAP_OCP_PASSWORD') | length > 0
-        fail_msg: >-
-          aap_ocp_credential_create is true: set aap_ocp_username in aap/vars.yaml and export
-          AAP_OCP_PASSWORD (read -rsp 'OpenShift password: ' AAP_OCP_PASSWORD; export AAP_OCP_PASSWORD).
-        quiet: true
-      when:
-        - aap_ocp_credential | length > 0
-        - aap_ocp_credential_create | bool
-
-    # update_secrets: re-running with a new AAP_OCP_PASSWORD rotates it.
-    - name: Credential "{{ aap_ocp_credential }}" (aap_ocp_credential_create)
-      credential:
-        name: "{{ aap_ocp_credential }}"
-        organization: "{{ aap_organization }}"
-        credential_type: "{{ aap_ocp_credential_type }}"
-        inputs:
-          username: "{{ aap_ocp_username }}"
-          password: "{{ lookup('env', 'AAP_OCP_PASSWORD') }}"
-        update_secrets: true
-        state: present
-      no_log: true
-      when:
-        - aap_ocp_credential | length > 0
-        - aap_ocp_credential_create | bool
+    # --- optional: OpenShift login from an existing AAP credential ---
+    # aap_ocp_credential is only attached to the job template below. This
+    # playbook never creates or changes credentials, so it can't overwrite
+    # one: a Machine credential's -u/--ask-pass login is read by
+    # action_plugins/ocp_connection_login.py.
 
     - name: Job template with the launch survey
       job_template:
