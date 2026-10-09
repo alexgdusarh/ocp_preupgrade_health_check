@@ -182,47 +182,32 @@ unset CONTROLLER_OAUTH_TOKEN
 ## OpenShift login from an AAP credential (optional)
 
 Instead of every user typing a password, the job template can log in with a
-service user stored in AAP - e.g. an LDAP/IdP account valid on all clusters.
-Set `aap_ocp_credential` in `aap/vars.yaml` to the credential's name: it's
-attached to the job template and the survey stops asking for
-username/password. Two kinds work:
-
-**An existing Machine credential** (username + password) - used as it is;
-`configure.yaml` creates and changes nothing:
+service user whose credential already exists in AAP - e.g. a **Machine**
+credential (username + password) for an LDAP/IdP account valid on all
+clusters:
 
 ```yaml
-aap_ocp_credential: <existing Machine credential>
-aap_ocp_credential_create: false
+aap_ocp_credential: <existing credential name>
 ```
+
+`configure.yaml` only **attaches** it to the job template and drops the
+survey's username/password questions. It never creates or changes
+credentials, so it can't overwrite one; create and rotate the credential in
+AAP as usual.
 
 AAP passes a Machine credential as `ansible-playbook -u <user>` plus an
 answered `--ask-pass` prompt, so the password exists only in the play's
 connection settings. `action_plugins/ocp_connection_login.py` reads it there
-(registered with `no_log`) when no password came from the survey or
-`OCP_PASSWORD`. A Machine credential whose password is "Prompt on launch"
-works too - AAP then asks for it at launch.
+(registered with `no_log`) when no password came from the survey or the
+`OCP_PASSWORD` environment variable. A Machine credential whose password is
+"Prompt on launch" works too - AAP then asks for it at launch. A custom
+credential type that injects `OCP_USERNAME` / `OCP_PASSWORD` environment
+variables also works.
 
-**A credential created by configure.yaml**, of type `OpenShift user login`
-(username + secret password, injected as `OCP_USERNAME` / `OCP_PASSWORD`):
-
-```yaml
-aap_ocp_credential: <name>
-aap_ocp_credential_create: true
-aap_ocp_username: <service user>
-```
-
-```bash
-read -rsp 'OpenShift password: ' AAP_OCP_PASSWORD; echo; export AAP_OCP_PASSWORD
-ansible-playbook aap/configure.yaml
-unset AAP_OCP_PASSWORD
-```
-
-Re-run the same way with the new password to rotate it (`update_secrets`).
-
-Either way the password is never written to a file, never printed, and
-doesn't appear in the job's extra vars. Every job then runs as that user: it
-needs `cluster-reader` plus `pods/exec` where the checks exec (etcd,
-ODF/Ceph, catalog pods, ACM namespaces).
+The password is never written to a file, never printed, and doesn't appear
+in the job's extra vars. Every job then runs as that user: it needs
+`cluster-reader` plus `pods/exec` where the checks exec (etcd, ODF/Ceph,
+catalog pods, ACM namespaces).
 
 ## Execution environment (optional)
 
