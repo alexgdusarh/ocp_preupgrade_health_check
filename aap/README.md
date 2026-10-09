@@ -106,7 +106,7 @@ vi aap/vars.yaml
 | `aap_scm_branch` | Branch to run (default `main`) |
 | `aap_playbook` | Path of the health-check playbook from the repository root: `playbook.yml` (default), or e.g. `automation/openshift/playbook.yaml` when it sits in a folder of a larger repository |
 | `aap_scm_credential` | Name of an existing Source Control credential, or `""` for a public repository |
-| `aap_execution_environment` | EE name as shown in AAP (default `Default execution environment`) |
+| `aap_execution_environment` | EE name as shown in AAP (default `Default execution environment`); see "Execution environment (optional)" to create it |
 | `aap_clusters` | One API URL per cluster, e.g. `https://api.cluster-a.example.com:6443` |
 | `aap_upgrade_channels` / `aap_default_upgrade_channel` | Channels offered in the survey, and the default |
 | `aap_project_name`, `aap_inventory_name`, `aap_job_template_name` | Object names, if you want others |
@@ -178,6 +178,39 @@ unset CONTROLLER_OAUTH_TOKEN
 3. When the job finishes, **Details > Artifacts** shows the
    `ocp_preupgrade_health` summary. The report files themselves are not
    kept after the job yet (see `../execution-environment.txt`, section 6).
+
+## Execution environment (optional)
+
+The project and job template use the EE named `aap_execution_environment`.
+By default it must already exist in AAP. Two optional steps in
+`aap/vars.yaml` can provide it:
+
+| Setting | Effect |
+| --- | --- |
+| `aap_ee_manage: true` | Create or update that EE in AAP from `aap_ee_image` (pull policy `aap_ee_pull`, registry credential `aap_ee_registry_credential`) |
+| `aap_ee_push_to: <registry>/<name>:<tag>` | First copy `aap_ee_image` into your own registry (e.g. Private Automation Hub) and use that copy - for an AAP that can't pull from registry.redhat.io |
+
+`aap_ee_image` defaults to the current AAP 2.4 supported EE,
+`registry.redhat.io/ansible-automation-platform-24/ee-supported-rhel8:latest`
+(ansible-core 2.16, Python 3.12, kubernetes.core, kubernetes 29,
+websocket-client 1.7). Pin a fixed tag (`:2.0-<build>`, see
+`skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-24/ee-supported-rhel8`)
+if it should change only when you change it.
+
+The push runs **podman on the machine running configure.yaml** (so not
+option A, inside a container), with that machine's existing logins:
+
+```bash
+podman login registry.redhat.io
+podman login hub.example.com
+ansible-playbook aap/configure.yaml     # with aap_ee_push_to and aap_ee_manage set
+```
+
+Red Hat's images are signed and pushing them to another registry recompresses
+the layers, so the push uses `--remove-signatures`; the copy in your registry
+is unsigned (sign it there if you require signatures). Use a new
+`aap_execution_environment` name to try a newer image without changing the
+EE other job templates share.
 
 ## When the project is a folder in a larger repository
 

@@ -21,9 +21,30 @@ aap_playbook: playbook.yml
 aap_scm_credential: ""
 
 # --- Execution environment ----------------------------------------------------
-# AAP 2.4's default EE (ee-supported-rhel8) has everything the playbook needs
-# (ansible-core 2.16, Jinja2 3.1, kubernetes.core, kubernetes client 29).
+# Name of the EE the project and job template use. AAP 2.4's default EE
+# (ee-supported-rhel8) has everything the playbook needs.
 aap_execution_environment: Default execution environment
+
+# Optional: let configure.yaml create/update that EE in AAP from an image.
+# Off by default - the EE above must then already exist in AAP.
+aap_ee_manage: false
+# Image to use. Current AAP 2.4 supported EE: ansible-core 2.16, Python 3.12,
+# kubernetes.core, kubernetes 29, websocket-client 1.7. Pin a fixed tag
+# (e.g. :2.0-<build>) instead of :latest if you want it to change only when
+# you change it.
+aap_ee_image: registry.redhat.io/ansible-automation-platform-24/ee-supported-rhel8:latest
+aap_ee_pull: always             # always | missing | never
+# Name of an existing AAP "Container Registry" credential able to pull the
+# image (from aap_ee_push_to when set, else aap_ee_image); "" = none.
+aap_ee_registry_credential: ""
+aap_ee_description: OpenShift pre-upgrade health check
+
+# Optional: copy aap_ee_image into your own registry first (e.g. Private
+# Automation Hub), for an AAP that can't pull from registry.redhat.io. Runs
+# podman pull / tag / push on the machine running configure.yaml, with that
+# machine's existing `podman login` sessions - no registry passwords here.
+# "" = don't push. Example: hub.example.com/ee-supported-rhel8:2.0-1789638854
+aap_ee_push_to: ""
 
 # --- Inventory: the playbook targets the controller-side localhost only -------
 aap_inventory_name: OCP pre-upgrade health check - localhost
