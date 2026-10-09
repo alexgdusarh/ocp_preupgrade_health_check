@@ -365,32 +365,10 @@ report_basename: "ocp-preupgrade-health-{{ cluster_id_short | default('cluster')
 fail_on_critical: true              # fail the play at the end if critical findings were recorded
 
 # -----------------------------------------------------------------------------
-# AAP survey: "Options" and "Advanced settings" (aap/configure.yaml builds the
-# survey from these two, tasks/02_survey_options.yml applies the answers)
+# AAP survey "Options" / "Advanced settings": defined in aap/vars.yaml
+# (survey_option_flags, survey_option_defaults, survey_advanced_allowlist).
+# aap/configure.yaml builds the survey from them and passes the flags and the
+# allowlist to the job template as extra vars, so tasks/02_survey_options.yml
+# always applies the same definitions the survey was built from, wherever
+# this playbook lives. Outside AAP they're absent and the step does nothing.
 # -----------------------------------------------------------------------------
-# survey_options (multi-select): each ticked label sets these variables.
-# Changing a label here changes the survey after the next aap/configure.yaml run.
-survey_option_flags:
-  "Skip Portworx checks": {portworx_enabled: false}
-  "Skip OpenShift Virtualization checks": {cnv_enabled: false}
-  "Skip ODF checks": {odf_enabled: false}
-  "Skip CRD finalizer scan (faster)": {finalizer_scan_include_crs: false}
-  "Don't fail the job on CRITICAL": {fail_on_critical: false}
-  "ACM hub: check hub and managed clusters": {acm_enabled: true}
-# Ticked by default in the survey (these clusters have no ODF for now).
-survey_option_defaults: ["Skip ODF checks"]
-
-# survey_advanced (text box, `key: value` lines): only these variables, with
-# their type (the tasks cast them with | int / | float where used, since a
-# set_fact or -e value arrives as text); *_pct values must be between 0 and 1, everything else above 0.
-# Anything else is rejected, so the box can't change the cluster, the login
-# or certificate checks.
-survey_advanced_allowlist:
-  etcd_quota_bytes: int
-  etcd_db_warn_pct: float
-  etcd_db_crit_pct: float
-  etcd_took_warn_ms: int
-  etcd_took_crit_ms: int
-  finalizer_scan_stuck_after_seconds: int
-  api_report_min_requests: int
-  upgrade_path_timeout: int

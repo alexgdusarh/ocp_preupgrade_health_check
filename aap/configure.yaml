@@ -27,11 +27,10 @@
   collections:
     - ansible.controller
     - awx.awx
+  # Everything comes from vars.yaml next to this playbook, so the aap/ folder
+  # works on its own, from any repository or path.
   vars_files:
-    - vars.yaml               # this playbook's settings (placeholders: CHANGE-ME)
-    # survey_option_flags / survey_option_defaults / survey_advanced_allowlist:
-    # the same definitions the health check uses to apply the answers.
-    - ../group_vars/all.yml
+    - vars.yaml               # settings, survey definitions (placeholders: CHANGE-ME)
 
   pre_tasks:
     - name: Stop on unreplaced placeholders
@@ -89,7 +88,11 @@
         playbook: "{{ aap_playbook }}"
         inventory: "{{ aap_inventory_name }}"
         execution_environment: "{{ aap_execution_environment }}"
-        extra_vars: "{{ aap_job_extra_vars }}"
+        # The survey's flag map and allowlist travel with the job template, so the
+        # health check applies the answers with the definitions the survey was
+        # built from.
+        extra_vars: "{{ aap_job_extra_vars | combine({'survey_option_flags': survey_option_flags,
+                                                      'survey_advanced_allowlist': survey_advanced_allowlist}) }}"
         survey_enabled: true
         # Survey answers become extra vars. ocp_password is a Password field:
         # stored encrypted, shown as $encrypted$ in job details, and the
@@ -138,7 +141,7 @@
               max: 32
             - variable: survey_options
               question_name: Options
-              question_description: Tick to change what this run checks (labels and effects in group_vars/all.yml)
+              question_description: Tick to change what this run checks
               type: multiselect
               choices: "{{ survey_option_flags.keys() | list }}"
               default: "{{ survey_option_defaults | join('\n') }}"

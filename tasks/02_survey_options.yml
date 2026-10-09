@@ -1,16 +1,16 @@
 ---
 # Apply the AAP survey's "Options" (survey_options, multi-select) and
-# "Advanced settings" (survey_advanced, `key: value` lines) - see
-# survey_option_flags / survey_advanced_allowlist in group_vars/all.yml.
-# Both are optional and absent outside AAP, so a command-line run is
-# unaffected.
+# "Advanced settings" (survey_advanced, `key: value` lines). The definitions,
+# survey_option_flags and survey_advanced_allowlist, come from the job
+# template's extra vars (set by aap/configure.yaml from aap/vars.yaml).
+# Outside AAP all of these are absent and this step does nothing.
 #
 # set_fact outranks group_vars, so these override the defaults - but not
 # anything passed as an extra var (e.g. the job template's fixed
 # ocp_auth_method), which always wins.
 - name: Check the survey options and advanced settings
   ansible.builtin.set_fact:
-    _survey: "{{ survey_options | default([]) | survey_settings(survey_advanced | default(''), survey_option_flags, survey_advanced_allowlist) }}"
+    _survey: "{{ survey_options | default([]) | survey_settings(survey_advanced | default(''), survey_option_flags | default({}), survey_advanced_allowlist | default({})) }}"
 
 - name: Stop on invalid survey answers
   ansible.builtin.assert:
