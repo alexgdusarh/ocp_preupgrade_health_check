@@ -78,6 +78,10 @@
       } | to_nice_json }}"
   delegate_to: localhost
 
+- name: Publish the report to Confluence (confluence_enabled)
+  ansible.builtin.include_tasks: tasks/95_confluence.yml
+  when: confluence_enabled | bool
+
 # Shows as the job's artifacts in AAP (Details page, API) and is passed to
 # later nodes of a workflow, e.g. to stop or notify on CRITICAL. Keyed by
 # cluster so one workflow running several clusters keeps them apart.
@@ -98,6 +102,7 @@
         'report_generated_at': report_generated_at,
         'report_basename': report_basename,
         'critical_findings': critical_findings | map(attribute='summary') | list,
+        'confluence_page_url': confluence_page_url | default(''),
       }}} }}"
     per_host: false
     aggregate: true

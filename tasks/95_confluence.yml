@@ -1,0 +1,151 @@
+---
+# Publish this run to Confluence Cloud: one page per cluster
+# (confluence_page_title) under confluence_parent_id (a folder or a page),
+# created on the first run and updated on every run after - the page history
+# keeps the earlier runs. Body: templates/report.confluence.xhtml.j2 (summary
+# + findings); the .html and .md reports are attached under stable names, so
+# each run adds a new version of the same attachment.
+#
+# Auth: Atlassian account email + API token as basic auth, from
+# CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN (url_password is never logged).
+# API: v2 for spaces/pages, v1 for attachments (v2 has no upload).
+# Best-effort: any failure is reported (rescue) and never fails the run.
+- name: Publish the report to Confluence
+  block:
+    - name: Check the Confluence settings
+      ansible.builtin.assert:
+        that:
+          - confluence_url | length > 0
+          - confluence_space_key | length > 0
+          - confluence_parent_id | string | length > 0
+          - confluence_email | length > 0
+          - confluence_api_token | length > 0
+        fail_msg: >-
+          confluence_enabled is true but a setting is missing: confluence_url, confluence_space_key,
+          confluence_parent_id, and CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN in the environment.
+        quiet: true
+
+    - name: Look up the Confluence space {{ confluence_space_key }}
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/spaces?keys={{ confluence_space_key | urlencode }}"
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        return_content: true
+      register: _cf_space
+
+    - name: Stop if the space wasn't found
+      ansible.builtin.assert:
+        that: _cf_space.json.results | default([]) | length > 0
+        fail_msg: "Confluence space {{ confluence_space_key }} not found, or this account can't see it."
+        quiet: true
+
+    - name: Find this cluster's page ({{ confluence_page_title }})
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages?space-id={{ _cf_space.json.results[0].id }}&title={{ confluence_page_title | urlencode }}&status=current"
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        return_content: true
+      register: _cf_found
+
+    - name: Get the page's current version (existing page only)
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages/{{ _cf_found.json.results[0].id }}"
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        return_content: true
+      register: _cf_current
+      when: _cf_found.json.results | default([]) | length > 0
+
+    - name: Create the page (first run for this cluster)
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages"
+        method: POST
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        body_format: json
+        body:
+          spaceId: "{{ _cf_space.json.results[0].id }}"
+          status: current
+          title: "{{ confluence_page_title }}"
+          parentId: "{{ confluence_parent_id | string }}"
+          body:
+            representation: storage
+            value: "{{ _cf_body }}"
+        status_code: [200, 201]
+        return_content: true
+      register: _cf_created
+      when: _cf_found.json.results | default([]) | length == 0
+
+    - name: Update the page (new version)
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages/{{ _cf_current.json.id }}"
+        method: PUT
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        body_format: json
+        # One expression, so version.number stays a number (a YAML scalar
+        # would be sent as the string "2").
+        body: "{{ {'id': _cf_current.json.id, 'status': 'current', 'title': confluence_page_title,
+                   'body': {'representation': 'storage', 'value': _cf_body},
+                   'version': {'number': (_cf_current.json.version.number | int) + 1,
+                               'message': report_generated_at ~ ': ' ~ overall_status}} }}"
+        return_content: true
+      register: _cf_updated
+      when: _cf_current is not skipped
+
+    - name: Attach the HTML and Markdown reports (stable names, new version each run)
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/rest/api/content/{{ _cf_page.id }}/child/attachment"
+        method: PUT
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        headers:
+          X-Atlassian-Token: no-check
+        body_format: form-multipart
+        body:
+          file:
+            filename: "{{ confluence_attachment_basename }}.{{ item.ext }}"
+            content: "{{ lookup('ansible.builtin.file', report_output_dir ~ '/' ~ report_basename ~ '.' ~ item.ext, rstrip=false) }}"
+            mime_type: "{{ item.mime }}"
+          minorEdit: "true"
+          comment: "{{ report_generated_at }}: {{ overall_status }}"
+        status_code: [200]
+      loop:
+        - {ext: html, mime: text/html}
+        - {ext: md, mime: text/markdown}
+      loop_control:
+        label: "{{ confluence_attachment_basename }}.{{ item.ext }}"
+      when: confluence_attach_reports | bool
+
+    - name: Remember the page link
+      ansible.builtin.set_fact:
+        confluence_page_url: "{{ confluence_url | regex_replace('/+$', '') }}/wiki{{ _cf_page._links.webui | default('/pages/viewpage.action?pageId=' ~ _cf_page.id) }}"
+
+    - name: Report the Confluence page
+      ansible.builtin.debug:
+        msg: "Published to Confluence: {{ confluence_page_url }}"
+
+  rescue:
+    - name: Report that publishing to Confluence failed (the health check itself is unaffected)
+      ansible.builtin.debug:
+        msg: >-
+          Publishing to Confluence FAILED at "{{ ansible_failed_task.name | default('?') }}":
+          {{ (ansible_failed_result.msg | default('')) ~ ' ' ~ (ansible_failed_result.json.message | default(ansible_failed_result.json.errors | default('') | string)) }}
+
+  vars:
+    _cf_api: "{{ confluence_url | regex_replace('/+$', '') }}/wiki"
+    _cf_body: "{{ lookup('ansible.builtin.template', 'report.confluence.xhtml.j2') }}"
+    _cf_page: "{{ (_cf_created.json if _cf_created is not skipped else _cf_updated.json) | default({}) }}"
+    confluence_attachment_basename: "{{ cluster_folder }}-preupgrade-report"

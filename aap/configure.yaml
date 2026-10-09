@@ -46,7 +46,8 @@
         quiet: true
       vars:
         _placeholders: >-
-          {{ {'aap_organization': aap_organization, 'aap_scm_url': aap_scm_url, 'aap_clusters': aap_clusters | join(' ')}
+          {{ ({'aap_organization': aap_organization, 'aap_scm_url': aap_scm_url, 'aap_clusters': aap_clusters | join(' ')}
+              | combine({'aap_confluence': aap_confluence | to_json} if aap_confluence.enabled | bool else {}))
              | dict2items | selectattr('value', 'search', 'CHANGE-ME') | map(attribute='key') | list }}
 
   tasks:
@@ -156,14 +157,21 @@
         # health check applies the answers with the definitions the survey was
         # built from.
         extra_vars: "{{ aap_job_extra_vars | combine({'survey_option_flags': survey_option_flags,
-                                                      'survey_advanced_allowlist': survey_advanced_allowlist}) }}"
+                                                      'survey_advanced_allowlist': survey_advanced_allowlist})
+                        | combine({'confluence_enabled': true, 'confluence_url': aap_confluence.url,
+                                   'confluence_space_key': aap_confluence.space_key,
+                                   'confluence_parent_id': aap_confluence.parent_id | string}
+                                  if aap_confluence.enabled | bool else {}) }}"
         survey_enabled: true
         # Survey answers become extra vars. ocp_password (when asked) is a
         # Password field: stored encrypted, shown as $encrypted$ in job details,
         # and the playbook only uses it in one no_log task.
         # With aap_ocp_credential the login comes from that credential, so the
         # survey doesn't ask for username/password.
-        credentials: "{{ [aap_ocp_credential] if aap_ocp_credential | length > 0 else omit }}"
+        # Existing credentials, only attached: the OpenShift login and/or the
+        # Confluence token. Omitted when neither is set, so credentials attached
+        # by hand in AAP are left alone.
+        credentials: "{{ _credentials if _credentials | length > 0 else omit }}"
         survey_spec:
           name: OCP pre-upgrade health check
           description: Cluster, OpenShift login and upgrade target for this run
@@ -172,6 +180,7 @@
         state: present
       vars:
         _login_questions: "{{ ['ocp_username', 'ocp_password'] if aap_ocp_credential | length > 0 else [] }}"
+        _credentials: "{{ [aap_ocp_credential, aap_confluence_credential] | select | list }}"
         _survey_questions:
           - variable: ocp_api_host
             question_name: Cluster
