@@ -18,8 +18,8 @@ never to an OpenShift cluster. Running it again updates the same objects
 | Question | Variable | Type | Notes |
 | --- | --- | --- | --- |
 | Cluster | `ocp_api_host` | Multiple choice | The API URLs listed in `aap_clusters` |
-| OpenShift username | `ocp_username` | Text, optional | Blank = log in as the AAP user who launched the job (`awx_user_name`) |
-| OpenShift password | `ocp_password` | Password | Stored encrypted, shown as `$encrypted$`; exchanged once for an OAuth token, which is revoked at the end of the run |
+| OpenShift username | `ocp_username` | Text, optional | Blank = log in as the AAP user who launched the job (`awx_user_name`). Not asked with `aap_ocp_credential` |
+| OpenShift password | `ocp_password` | Password | Stored encrypted, shown as `$encrypted$`; exchanged once for an OAuth token, which is revoked at the end of the run. Not asked with `aap_ocp_credential` |
 | Upgrade channel | `upgrade_channel` | Multiple choice | `eus`, `stable`, `fast` (default `eus`) |
 | Target version | `upgrade_target_version` | Text, optional | Exact `x.y.z`, e.g. `4.20.34`; blank = the channel's latest |
 | Options | `survey_options` | Multi-select, optional | Plain-language switches, see below; "Skip ODF checks" is ticked by default |
@@ -178,6 +178,36 @@ unset CONTROLLER_OAUTH_TOKEN
 3. When the job finishes, **Details > Artifacts** shows the
    `ocp_preupgrade_health` summary. The report files themselves are not
    kept after the job yet (see `../execution-environment.txt`, section 6).
+
+## OpenShift login from an AAP credential (optional)
+
+Instead of every user typing a password, the job template can log in with a
+service user stored in AAP - e.g. an LDAP/IdP account valid on all clusters.
+Set in `aap/vars.yaml`:
+
+| Setting | Effect |
+| --- | --- |
+| `aap_ocp_credential: <name>` | Attach that credential to the job template; the survey stops asking for username/password |
+| `aap_ocp_credential_type` | The credential type, created by configure.yaml (default `OpenShift user login`): username + secret password, injected into the job as `OCP_USERNAME` / `OCP_PASSWORD` |
+| `aap_ocp_credential_create: true` + `aap_ocp_username` | Also create/update the credential; the password comes from `AAP_OCP_PASSWORD` at run time |
+
+A credential only reaches the playbook through its type's injectors - a
+generic username/password credential (e.g. Machine) doesn't expose the
+password to the play - so it must be of the type above. To create it with
+this playbook:
+
+```bash
+read -rsp 'OpenShift password: ' AAP_OCP_PASSWORD; echo; export AAP_OCP_PASSWORD
+ansible-playbook aap/configure.yaml      # aap_ocp_credential, aap_ocp_credential_create: true, aap_ocp_username set
+unset AAP_OCP_PASSWORD
+```
+
+Re-run the same way with the new password to rotate it (`update_secrets`).
+Or create it by hand in AAP with credential type `OpenShift user login` and
+set only `aap_ocp_credential`. The password is never written to a file, never
+printed (`no_log`), and doesn't appear in the job's extra vars. Every job then
+runs as that user: it needs `cluster-reader` plus `pods/exec` where the
+checks exec (etcd, ODF/Ceph, catalog pods, ACM namespaces).
 
 ## Execution environment (optional)
 

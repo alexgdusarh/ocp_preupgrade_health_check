@@ -65,6 +65,20 @@ aap_clusters:
 aap_upgrade_channels: [eus, stable, fast]
 aap_default_upgrade_channel: eus
 
+# --- OpenShift login from an AAP credential (optional) -------------------------
+# Name of an AAP credential the job template uses to log in to OpenShift; the
+# survey then doesn't ask for a username/password. It must be of the type
+# below (configure.yaml creates the type), which injects the login as
+# OCP_USERNAME / OCP_PASSWORD. "" = users type their own login in the survey.
+aap_ocp_credential: ""
+aap_ocp_credential_type: OpenShift user login
+# true = also create/update that credential: username from aap_ocp_username,
+# password from the AAP_OCP_PASSWORD environment variable at run time (never
+# a file). Re-run with a new AAP_OCP_PASSWORD to rotate it. false = it already
+# exists in AAP (created by hand with the type above).
+aap_ocp_credential_create: false
+aap_ocp_username: ""
+
 # Fixed extra vars for every launch (not asked in the survey).
 aap_job_extra_vars:
   ocp_auth_method: password
