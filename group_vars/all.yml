@@ -23,12 +23,15 @@ ocp_api_token: ""                   # pass with -e ocp_api_token=... or via vaul
 # Exchanged once for an OAuth token (tasks/01_oauth_login.yml), revoked at the
 # end of the run. In AAP pass ocp_password from a Password survey field; on the
 # command line export OCP_PASSWORD instead of -e, which shows in `ps`.
-ocp_username: ""
+# OCP_USERNAME / OCP_PASSWORD are also what the AAP credential type
+# "OpenShift user login" (aap/configure.yaml) injects into the job.
+ocp_username: "{{ lookup('env', 'OCP_USERNAME') }}"
 ocp_password: "{{ lookup('env', 'OCP_PASSWORD') }}"
-# Who actually logs in: ocp_username, or when that's blank (e.g. an empty AAP
-# survey answer) the AAP user who launched the job, which AAP passes as
-# awx_user_name - same identity when AAP and OpenShift share the directory.
-ocp_login_username: "{{ ocp_username if ocp_username | length > 0 else (awx_user_name | default('')) }}"
+# Who actually logs in: ocp_username; when that's blank (e.g. an empty AAP
+# survey answer) the OCP_USERNAME environment variable, then the AAP user who
+# launched the job (awx_user_name) - same identity when AAP and OpenShift
+# share the directory.
+ocp_login_username: "{{ ocp_username if ocp_username | length > 0 else (lookup('env', 'OCP_USERNAME') or (awx_user_name | default(''))) }}"
 
 # --- shared TLS options -------------------------------------------------------
 ocp_validate_certs: true
