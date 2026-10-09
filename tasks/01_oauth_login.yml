@@ -29,7 +29,7 @@
   ansible.builtin.uri:
     url: "{{ _ocp_oauth_meta.json.authorization_endpoint }}?response_type=token&client_id=openshift-challenging-client"
     url_username: "{{ ocp_login_username }}"
-    url_password: "{{ ocp_password }}"
+    url_password: "{{ ocp_login_password }}"
     force_basic_auth: true
     follow_redirects: none
     headers:

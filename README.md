@@ -1002,6 +1002,8 @@ at a real cluster.
 ├── group_vars/all.yml                    # every tunable, with comments
 ├── requirements.txt                      # Python: ansible-core, Jinja2, kubernetes, ...
 ├── requirements.yml                      # collections
+├── action_plugins/
+│   └── ocp_connection_login.py           # reads an AAP Machine credential's login (password method)
 ├── filter_plugins/
 │   └── ocp_health_filters.py             # all the report-building logic (unit tested)
 ├── tasks/
