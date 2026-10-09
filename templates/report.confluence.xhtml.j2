@@ -490,9 +490,14 @@ Hub workers: {{ sz.hub_nodes.workers | e }} node(s), {{ sz.hub_nodes.cpu | e }} 
 {% if confluence_attach_reports | default(true) | bool %}
 
 <h2>Attached reports</h2>
+{#- Direct download links: Confluence Cloud only previews an attached HTML
+    file inside its own viewer, so the standalone report opens from the
+    downloaded file. confluence_page_id is set by tasks/95_confluence.yml. -#}
+{% set _dl = confluence_url | default('') | regex_replace('/+$', '') ~ '/wiki/download/attachments/' ~ (confluence_page_id | default('') | string) ~ '/' ~ (confluence_attachment_basename | urlencode) %}
 <ul>
-<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.html" /></ac:link> - the same report as one HTML file (open in a browser)</li>
-<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.md" /></ac:link> - Markdown, git-friendly</li>
+<li><a href="{{ (_dl ~ '.html?api=v2') | e }}">{{ confluence_attachment_basename | e }}.html</a> - the full report as one standalone HTML file (downloads; open it in a browser)</li>
+<li><a href="{{ (_dl ~ '.md?api=v2') | e }}">{{ confluence_attachment_basename | e }}.md</a> - Markdown, git-friendly (downloads)</li>
 </ul>
+<p><em>Earlier versions of both files are under the page's attachments (••• &gt; Attachments).</em></p>
 {% endif %}
 {% endfilter %}
