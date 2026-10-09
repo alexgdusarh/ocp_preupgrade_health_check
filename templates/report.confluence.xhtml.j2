@@ -45,6 +45,17 @@
 <tr><th>Overall status</th><td>{{ lozenge(overall_status) }}</td></tr>
 <tr><th>Findings</th><td>{{ (critical_findings | length) ~ ' critical, ' ~ (warning_findings | length) ~ ' warning, ' ~ (info_findings | length) ~ ' info' }}</td></tr>
 </tbody></table>
+{#- Stat cards as in report.html.j2: Confluence keeps no CSS, so a heading
+    gives the big number and the cell shading (data-highlight-colour) the
+    severity tint. -#}
+<table><tbody>
+<tr>
+<td data-highlight-colour="#ffebe6"><h1>{{ critical_findings | length | string }}</h1><p>Critical</p></td>
+<td data-highlight-colour="#fffae6"><h1>{{ warning_findings | length | string }}</h1><p>Warning</p></td>
+<td data-highlight-colour="#eae6ff"><h1>{{ info_findings | length | string }}</h1><p>Info</p></td>
+<td><h1>{{ ((critical_findings | length) + (warning_findings | length) + (info_findings | length)) | string }}</h1><p>Total findings</p></td>
+</tr>
+</tbody></table>
 {% if upgrade_target_version | length > 0 %}
 <p><em>Update path check: <code>{{ upgrade_target_version | e }}</code> is {{ 'a recommended update.' if target_is_recommended | default(false) else ('a conditional update - review its risks before proceeding.' if target_is_conditional | default(false) else 'NOT currently listed in availableUpdates/conditionalUpdates - verify with oc adm upgrade.') }}</em></p>
 {% endif %}
@@ -60,18 +71,20 @@
 {% if upgrade_channel_resolution.error is defined %}
 <p><em><strong>Upgrade channel resolution error</strong>: could not resolve <code>upgrade_channel: {{ upgrade_channel | e }}</code> - {{ upgrade_channel_resolution.error | e }}</em></p>
 {% endif %}
-<ac:structured-macro ac:name="toc"><ac:parameter ac:name="maxLevel">2</ac:parameter></ac:structured-macro>
+<ac:structured-macro ac:name="toc"><ac:parameter ac:name="minLevel">2</ac:parameter><ac:parameter ac:name="maxLevel">2</ac:parameter></ac:structured-macro>
 
 <h2>1. Findings</h2>
 {% if (critical_findings + warning_findings) | length == 0 %}
 <p>No CRITICAL or WARNING findings. The cluster looks ready for the upgrade based on these checks.</p>
 {% else %}
+{% call expand('CRITICAL and WARNING findings (' ~ ((critical_findings + warning_findings) | length) ~ ')' ~ counts(critical_findings + warning_findings)) %}
 <table><tbody>
 <tr><th>Severity</th><th>Section</th><th>Summary</th></tr>
 {% for f in critical_findings + warning_findings %}
 <tr><td>{{ lozenge(f.severity) }}</td><td>{{ f.section | e }}</td><td>{{ f.summary | e }}</td></tr>
 {% endfor %}
 </tbody></table>
+{% endcall %}
 {% endif %}
 {% if info_findings | length > 0 %}
 {% call expand('INFO findings (' ~ (info_findings | length) ~ ')') %}
