@@ -45,6 +45,10 @@ aap_ee_description: OpenShift pre-upgrade health check
 # machine's existing `podman login` sessions - no registry passwords here.
 # "" = don't push. Example: hub.example.com/ee-supported-rhel8:2.0-1789638854
 aap_ee_push_to: ""
+# Registry auth file for that pull and push (podman --authfile), e.g. a file
+# with logins for both registry.redhat.io and your hub. "" = podman's default
+# (podman login / $REGISTRY_AUTH_FILE). A path relative to aap/ or with ~ works.
+aap_ee_authfile: ""
 
 # --- Inventory: the playbook targets the controller-side localhost only -------
 aap_inventory_name: OCP pre-upgrade health check - localhost

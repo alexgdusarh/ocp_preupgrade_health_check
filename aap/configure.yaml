@@ -55,13 +55,31 @@
     # its existing `podman login` sessions for both registries.
     - name: Copy the EE image into your registry (aap_ee_push_to)
       when: aap_ee_push_to | length > 0
+      vars:
+        _ee_authfile: "{{ aap_ee_authfile | expanduser }}"
+        _ee_authfile_path: "{{ _ee_authfile if _ee_authfile is abs else (playbook_dir ~ '/' ~ _ee_authfile) }}"
+        _ee_authfile_args: "{{ ['--authfile', _ee_authfile_path] if aap_ee_authfile | length > 0 else [] }}"
       block:
         - name: Check podman is available here
           ansible.builtin.command: podman --version
           changed_when: false
 
+        - name: Check the registry auth file exists (aap_ee_authfile)
+          ansible.builtin.stat:
+            path: "{{ _ee_authfile_path }}"
+          register: _ee_authfile_stat
+          when: aap_ee_authfile | length > 0
+
+        - name: Stop if it doesn't
+          ansible.builtin.assert:
+            that: _ee_authfile_stat.stat.exists
+            fail_msg: "aap_ee_authfile {{ _ee_authfile_path }} doesn't exist."
+            quiet: true
+          when: aap_ee_authfile | length > 0
+
         - name: Pull {{ aap_ee_image }}
-          ansible.builtin.command: podman pull {{ aap_ee_image }}
+          ansible.builtin.command:
+            argv: "{{ ['podman', 'pull'] + _ee_authfile_args + [aap_ee_image] }}"
           changed_when: false
 
         - name: Tag it as {{ aap_ee_push_to }}
@@ -73,7 +91,8 @@
         # podman refuses ("Would invalidate signatures") unless it's removed.
         # The copy is then unsigned; sign it in your registry if you require it.
         - name: Push {{ aap_ee_push_to }}
-          ansible.builtin.command: podman push --remove-signatures {{ aap_ee_push_to }}
+          ansible.builtin.command:
+            argv: "{{ ['podman', 'push', '--remove-signatures'] + _ee_authfile_args + [aap_ee_push_to] }}"
           register: _ee_push
           changed_when: true
 
