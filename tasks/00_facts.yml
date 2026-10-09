@@ -62,15 +62,25 @@
       Upgrade with pip install -r requirements.txt, or use a current execution environment.
   when: _py_k8s_libs.stdout_lines[1] is version('1.6.0', '<')
 
+# No password from the survey or OCP_PASSWORD: use the job's connection
+# login, which is how an AAP Machine credential arrives (-u + --ask-pass).
+- name: Read the connection login (AAP Machine credential), password method only
+  ocp_connection_login:
+  register: _ocp_connection_login
+  no_log: true
+  when:
+    - ocp_auth_method == 'password'
+    - ocp_password | length == 0
+
 - name: Validate auth method and required variables
   ansible.builtin.assert:
     that:
       - ocp_auth_method in ['kubeconfig', 'token', 'password']
       - (ocp_auth_method != 'token') or (ocp_api_host | length > 0 and ocp_api_token | length > 0)
-      - (ocp_auth_method != 'password') or (ocp_api_host | length > 0 and ocp_login_username | length > 0 and ocp_password | length > 0)
+      - (ocp_auth_method != 'password') or (ocp_api_host | length > 0 and ocp_login_username | length > 0 and ocp_login_password | length > 0)
     fail_msg: >-
       ocp_auth_method={{ ocp_auth_method }} is missing its required variables.
-      token needs ocp_api_host + ocp_api_token; password needs ocp_api_host + ocp_username (or an AAP launch) + ocp_password;
+      token needs ocp_api_host + ocp_api_token; password needs ocp_api_host + a username and password (survey, OCP_USERNAME/OCP_PASSWORD, or an AAP Machine credential);
       kubeconfig needs ocp_kubeconfig to point at a readable file.
     quiet: true
 

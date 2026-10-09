@@ -138,10 +138,10 @@
         state: present
 
     # --- optional: OpenShift login from an AAP credential (aap_ocp_credential) ---
-    # A credential reaches the playbook only through its type's injectors, so
-    # this type injects username/password as OCP_USERNAME / OCP_PASSWORD
-    # environment variables - group_vars reads them, they never show in the
-    # job's extra vars, and the password stays a secret field in AAP.
+    # Either an existing Machine credential (its -u/--ask-pass login is read by
+    # action_plugins/ocp_connection_login.py) - then nothing is created here -
+    # or, with aap_ocp_credential_create, a credential of the type below, which
+    # injects username/password as OCP_USERNAME / OCP_PASSWORD env vars.
     - name: Credential type "{{ aap_ocp_credential_type }}" (username/password -> OCP_USERNAME/OCP_PASSWORD)
       credential_type:
         name: "{{ aap_ocp_credential_type }}"
@@ -157,7 +157,9 @@
             OCP_USERNAME: !unsafe "{{ username }}"
             OCP_PASSWORD: !unsafe "{{ password }}"
         state: present
-      when: aap_ocp_credential | length > 0
+      when:
+        - aap_ocp_credential | length > 0
+        - aap_ocp_credential_create | bool
 
     - name: Stop if the credential's password isn't in AAP_OCP_PASSWORD
       ansible.builtin.assert:

@@ -31,7 +31,14 @@ ocp_password: "{{ lookup('env', 'OCP_PASSWORD') }}"
 # survey answer) the OCP_USERNAME environment variable, then the AAP user who
 # launched the job (awx_user_name) - same identity when AAP and OpenShift
 # share the directory.
-ocp_login_username: "{{ ocp_username if ocp_username | length > 0 else (lookup('env', 'OCP_USERNAME') or (awx_user_name | default(''))) }}"
+# Last resort before awx_user_name: the job's connection login - an AAP
+# Machine credential's username/password (tasks/00_facts.yml reads them into
+# _ocp_connection_login when no password was given any other way).
+ocp_login_username: "{{ ocp_username if ocp_username | length > 0
+                        else (lookup('env', 'OCP_USERNAME')
+                              or ((_ocp_connection_login | default({})).username | default('') if ocp_password | length == 0 else '')
+                              or (awx_user_name | default(''))) }}"
+ocp_login_password: "{{ ocp_password if ocp_password | length > 0 else ((_ocp_connection_login | default({})).password | default('')) }}"
 
 # --- shared TLS options -------------------------------------------------------
 ocp_validate_certs: true
