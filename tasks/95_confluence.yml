@@ -2,9 +2,10 @@
 # Publish this run to Confluence Cloud: one page per cluster
 # (confluence_page_title) under confluence_parent_id (a folder or a page),
 # created on the first run and updated on every run after - the page history
-# keeps the earlier runs. Body: templates/report.confluence.xhtml.j2 (summary
-# + findings); the .html and .md reports are attached under stable names, so
-# each run adds a new version of the same attachment.
+# keeps the earlier runs. Body: templates/report.confluence.xhtml.j2 (the
+# full report, every section of report.html.j2); the .html and .md reports
+# are also attached under stable names, so each run adds a new version of the
+# same attachment.
 #
 # Auth: Atlassian account email + API token as basic auth; the token from the
 # environment variable confluence_api_token_env names (url_password is never
