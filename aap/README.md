@@ -206,6 +206,11 @@ podman login hub.example.com
 ansible-playbook aap/configure.yaml     # with aap_ee_push_to and aap_ee_manage set
 ```
 
+Or, with an auth file that holds the logins for both registries, set
+`aap_ee_authfile` (the pull and the push then use `podman --authfile`); a
+path relative to `aap/` or starting with `~` works. Exporting
+`REGISTRY_AUTH_FILE` does the same without the setting.
+
 Red Hat's images are signed and pushing them to another registry recompresses
 the layers, so the push uses `--remove-signatures`; the copy in your registry
 is unsigned (sign it there if you require signatures). Use a new
