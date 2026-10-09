@@ -32,20 +32,35 @@
   changed_when: false
   failed_when: false
 
-- name: Require kubernetes >= 27.2.0 and websocket-client >= 1.6.0 (pod exec breaks on older ones)
+# kubernetes >= 27.2.0 is required: older clients broke every pod exec
+# (etcd, ODF/Ceph, opm render) with "'NoneType' object has no attribute
+# 'decode'", seen with a distro-packaged Ansible 2.10. websocket-client
+# >= 1.6.0 is what requirements.txt installs and what's been tested, but
+# Red Hat's own AAP 2.4 EEs have shipped older ones (1.5.1 with kubernetes
+# 29.0.0) - a supported pairing, so an older websocket-client only warns.
+- name: Require kubernetes >= 27.2.0 (pod exec breaks on older clients)
   ansible.builtin.assert:
     that:
       - _py_k8s_libs.rc == 0
+      - _py_k8s_libs.stdout_lines | length > 1
       - _py_k8s_libs.stdout_lines[0] is version('27.2.0', '>=')
-      - _py_k8s_libs.stdout_lines[1] is version('1.6.0', '>=')
     fail_msg: >-
       {{ ansible_playbook_python }} has
       {{ ('kubernetes ' ~ _py_k8s_libs.stdout_lines[0] ~ ', websocket-client ' ~ _py_k8s_libs.stdout_lines[1])
          if (_py_k8s_libs.rc == 0 and _py_k8s_libs.stdout_lines | length > 1)
          else ('no usable kubernetes/websocket-client: ' ~ (_py_k8s_libs.stderr | default('') | trim)) }}
-      - need kubernetes >= 27.2.0 and websocket-client >= 1.6.0, or every pod exec (etcd, ODF/Ceph,
-      opm render) fails. Run pip install -r requirements.txt in the virtualenv Ansible runs from.
+      - need kubernetes >= 27.2.0, or every pod exec (etcd, ODF/Ceph, opm render) fails.
+      Run pip install -r requirements.txt in the virtualenv Ansible runs from, or use a current
+      execution environment.
     quiet: true
+
+- name: Note an older websocket-client than tested (reported as a WARNING finding below)
+  ansible.builtin.debug:
+    msg: >-
+      websocket-client {{ _py_k8s_libs.stdout_lines[1] }} is older than the 1.6.0 this playbook is tested
+      with; pod exec (etcd, ODF/Ceph, opm render) may fail - those sections then show the error.
+      Upgrade with pip install -r requirements.txt, or use a current execution environment.
+  when: _py_k8s_libs.stdout_lines[1] is version('1.6.0', '<')
 
 - name: Validate auth method and required variables
   ansible.builtin.assert:
@@ -100,6 +115,14 @@
 - name: Initialise findings collector
   ansible.builtin.set_fact:
     findings: []
+
+- name: Record an older websocket-client than tested
+  ansible.builtin.set_fact:
+    findings: "{{ findings + [{'section': 'Prerequisites', 'severity': 'WARNING',
+      'summary': 'websocket-client ' ~ _py_k8s_libs.stdout_lines[1] ~ ' (with kubernetes ' ~ _py_k8s_libs.stdout_lines[0]
+                 ~ ') is older than the tested 1.6.0 - if pod exec checks (etcd, ODF/Ceph, opm render) show errors,
+                 update the execution environment or pip install -r requirements.txt.'}] }}"
+  when: _py_k8s_libs.stdout_lines[1] is version('1.6.0', '<')
 
 - name: Apply the AAP survey's options and advanced settings (no-op outside AAP)
   ansible.builtin.include_tasks: tasks/02_survey_options.yml

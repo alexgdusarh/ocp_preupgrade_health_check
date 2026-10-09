@@ -165,8 +165,10 @@ optional custom EE, for pinning your own versions or as a reference.
 Use **`ansible-core >= 2.16`** (needs **Python 3.10+**), the version current
 `kubernetes.core` releases support. 2.12 is the oldest the playbook accepts;
 2.12 to 2.15 work but print a note. The Python running Ansible also needs
-`kubernetes >= 27.2.0` and `websocket-client >= 1.6.0`. The playbook's first
-tasks check all of this and stop with a clear message otherwise.
+`kubernetes >= 27.2.0` (the run stops otherwise) and preferably
+`websocket-client >= 1.6.0`, the tested version - an older one, as in some
+AAP 2.4 execution environments (1.5.1), only adds a WARNING. The playbook's
+first tasks check all of this.
 
 Use a virtualenv rather than the OS-packaged `ansible`: an old distro
 Ansible (e.g. 2.10) and its old `kubernetes`/`websocket-client` packages
