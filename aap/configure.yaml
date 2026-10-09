@@ -22,7 +22,8 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  # Short module names (project, inventory, host, job_template) are looked up
+  # Short module names (execution_environment, project, inventory, host,
+  # job_template) are looked up
   # in these collections, first one installed wins.
   collections:
     - ansible.controller
@@ -49,6 +50,44 @@
              | dict2items | selectattr('value', 'search', 'CHANGE-ME') | map(attribute='key') | list }}
 
   tasks:
+    # --- optional: execution environment (aap_ee_push_to / aap_ee_manage) ---
+    # podman runs on the machine running this playbook (not inside AAP), with
+    # its existing `podman login` sessions for both registries.
+    - name: Copy the EE image into your registry (aap_ee_push_to)
+      when: aap_ee_push_to | length > 0
+      block:
+        - name: Check podman is available here
+          ansible.builtin.command: podman --version
+          changed_when: false
+
+        - name: Pull {{ aap_ee_image }}
+          ansible.builtin.command: podman pull {{ aap_ee_image }}
+          changed_when: false
+
+        - name: Tag it as {{ aap_ee_push_to }}
+          ansible.builtin.command: podman tag {{ aap_ee_image }} {{ aap_ee_push_to }}
+          changed_when: false
+
+        # Red Hat's images are signed, and pushing to another registry means
+        # recompressing the layers, which would invalidate that signature -
+        # podman refuses ("Would invalidate signatures") unless it's removed.
+        # The copy is then unsigned; sign it in your registry if you require it.
+        - name: Push {{ aap_ee_push_to }}
+          ansible.builtin.command: podman push --remove-signatures {{ aap_ee_push_to }}
+          register: _ee_push
+          changed_when: true
+
+    - name: Execution environment in AAP (aap_ee_manage)
+      execution_environment:
+        name: "{{ aap_execution_environment }}"
+        image: "{{ aap_ee_push_to if aap_ee_push_to | length > 0 else aap_ee_image }}"
+        pull: "{{ aap_ee_pull }}"
+        credential: "{{ aap_ee_registry_credential if aap_ee_registry_credential | length > 0 else omit }}"
+        organization: "{{ aap_organization }}"
+        description: "{{ aap_ee_description }}"
+        state: present
+      when: aap_ee_manage | bool
+
     - name: Project (pulls this repository)
       project:
         name: "{{ aap_project_name }}"
