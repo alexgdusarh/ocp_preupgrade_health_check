@@ -388,11 +388,15 @@ confluence_parent_id: ""            # folder or page ID the cluster pages go und
 confluence_page_title: "OCP pre-upgrade health check - {{ cluster_folder }}"
 confluence_attach_reports: true     # attach the .html and .md reports to the page
 confluence_validate_certs: true
-# Atlassian account email + API token (id.atlassian.com > Security > API
-# tokens). From the environment only - in AAP, a custom credential type your
-# admin creates injects them; never put them in a file.
+# Atlassian account email (not secret: a setting, or CONFLUENCE_EMAIL) and
+# API token (id.atlassian.com > Security > API tokens) - the token only from an
+# environment variable, never a file. confluence_api_token_env names that
+# variable: CONFLUENCE_API_TOKEN by default, or whatever an existing AAP
+# credential type injects, e.g. HASHI_TOKEN from a "Hashicorp Vault Token"
+# credential that holds the Confluence token.
 confluence_email: "{{ lookup('env', 'CONFLUENCE_EMAIL') }}"
-confluence_api_token: "{{ lookup('env', 'CONFLUENCE_API_TOKEN') }}"
+confluence_api_token_env: CONFLUENCE_API_TOKEN
+confluence_api_token: "{{ lookup('env', confluence_api_token_env) }}"
 
 # -----------------------------------------------------------------------------
 # AAP survey "Options" / "Advanced settings": defined in aap/vars.yaml
