@@ -225,7 +225,9 @@ Confluence Cloud only previews an HTML attachment inside its own viewer, so
 the standalone report opens from the downloaded file. The page
 link is also in the job's artifacts (`confluence_page_url`). Publishing is
 best-effort: if it fails, the job output says why and the health check
-result is unaffected.
+result is unaffected. Transient Confluence errors (5xx, 429, no connection)
+are retried after a pause (`confluence_retries`, `confluence_retry_delay` in
+`group_vars/all.yml`); a 401/403/404 fails at once.
 
 In `aap/vars.yaml`:
 
