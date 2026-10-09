@@ -218,7 +218,9 @@ The page holds the full report - the summary, then all 14 sections as in
 the HTML report - with Confluence's own status, expand and table-of-contents
 macros (long tables and raw command output start collapsed). The `.html` and
 `.md` reports are also attached under stable names, so each run adds a new
-version of the same two attachments. The page links to their direct downloads:
+version of the same attachments, together with
+`<cluster>-catalog_mirror_check.json` - the input for olm-upgrade-analyzer -
+when the catalog mirror check ran. The page links to their direct downloads:
 Confluence Cloud only previews an HTML attachment inside its own viewer, so
 the standalone report opens from the downloaded file. The page
 link is also in the job's artifacts (`confluence_page_url`). Publishing is

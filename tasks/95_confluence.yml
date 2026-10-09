@@ -4,7 +4,8 @@
 # created on the first run and updated on every run after - the page history
 # keeps the earlier runs. Body: templates/report.confluence.xhtml.j2 (the
 # full report, every section of report.html.j2); the .html and .md reports
-# are also attached under stable names, so each run adds a new version of the
+# are also attached under stable names (plus catalog_mirror_check.json, the
+# olm-upgrade-analyzer input, when task 89b wrote it), so each run adds a new version of the
 # same attachment, and the page links to their direct download URLs (which
 # need the page ID, hence: create if missing, attach, then write the body).
 #
@@ -84,7 +85,9 @@
       ansible.builtin.set_fact:
         confluence_page_id: "{{ (_cf_created.json.id if _cf_created is not skipped else _cf_found.json.results[0].id) | string }}"
 
-    - name: Attach the HTML and Markdown reports (stable names, new version each run)
+    # The JSON is the input for olm-upgrade-analyzer (task 89b); it is
+    # missing when that check didn't run, e.g. a --tags subset.
+    - name: Attach the reports and the OLM analyzer JSON (stable names, new version each run)
       ansible.builtin.uri:
         url: "{{ _cf_api }}/rest/api/content/{{ confluence_page_id }}/child/attachment"
         method: PUT
@@ -97,18 +100,20 @@
         body_format: form-multipart
         body:
           file:
-            filename: "{{ confluence_attachment_basename }}.{{ item.ext }}"
-            content: "{{ lookup('ansible.builtin.file', report_output_dir ~ '/' ~ report_basename ~ '.' ~ item.ext, rstrip=false) }}"
+            filename: "{{ item.name }}"
+            content: "{{ lookup('ansible.builtin.file', item.src, rstrip=false) }}"
             mime_type: "{{ item.mime }}"
           minorEdit: "true"
           comment: "{{ report_generated_at }}: {{ overall_status }}"
         status_code: [200]
-      loop:
-        - {ext: html, mime: text/html}
-        - {ext: md, mime: text/markdown}
+      loop: "{{ _cf_attachments | selectattr('src', 'file') | list }}"
       loop_control:
-        label: "{{ confluence_attachment_basename }}.{{ item.ext }}"
+        label: "{{ item.name }}"
       when: confluence_attach_reports | bool
+
+    - name: Remember whether the OLM analyzer JSON was attached
+      ansible.builtin.set_fact:
+        confluence_olm_json_attached: "{{ confluence_attach_reports | bool and _cf_attachments[2].src is file }}"
 
     - name: Get the page's current version
       ansible.builtin.uri:
@@ -158,3 +163,8 @@
     _cf_body: "{{ lookup('ansible.builtin.template', 'report.confluence.xhtml.j2') }}"
     _cf_page: "{{ _cf_updated.json | default({}) }}"
     confluence_attachment_basename: "{{ cluster_folder }}-preupgrade-report"
+    confluence_olm_json_name: "{{ cluster_folder }}-catalog_mirror_check.json"
+    _cf_attachments:
+      - {src: "{{ report_output_dir }}/{{ report_basename }}.html", name: "{{ confluence_attachment_basename }}.html", mime: text/html}
+      - {src: "{{ report_output_dir }}/{{ report_basename }}.md", name: "{{ confluence_attachment_basename }}.md", mime: text/markdown}
+      - {src: "{{ catalog_render_output_dir }}/catalog_mirror_check.json", name: "{{ confluence_olm_json_name }}", mime: application/json}

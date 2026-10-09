@@ -497,7 +497,10 @@ Hub workers: {{ sz.hub_nodes.workers | e }} node(s), {{ sz.hub_nodes.cpu | e }} 
 <ul>
 <li><a href="{{ (_dl ~ '.html?api=v2') | e }}">{{ confluence_attachment_basename | e }}.html</a> - the full report as one standalone HTML file (downloads; open it in a browser)</li>
 <li><a href="{{ (_dl ~ '.md?api=v2') | e }}">{{ confluence_attachment_basename | e }}.md</a> - Markdown, git-friendly (downloads)</li>
+{% if confluence_olm_json_attached | default(false) | bool %}
+<li><a href="{{ (confluence_url | default('') | regex_replace('/+$', '') ~ '/wiki/download/attachments/' ~ (confluence_page_id | default('') | string) ~ '/' ~ (confluence_olm_json_name | urlencode) ~ '?api=v2') | e }}">{{ confluence_olm_json_name | e }}</a> - input for olm-upgrade-analyzer (catalog_mirror_check.json; downloads)</li>
+{% endif %}
 </ul>
-<p><em>Earlier versions of both files are under the page's attachments (••• &gt; Attachments).</em></p>
+<p><em>Earlier versions of these files are under the page's attachments (••• &gt; Attachments).</em></p>
 {% endif %}
 {% endfilter %}

@@ -244,6 +244,8 @@ context["confluence_attach_reports"] = True
 context["confluence_attachment_basename"] = "lab1-preprod-preupgrade-report"
 context["confluence_url"] = "https://example.atlassian.net"
 context["confluence_page_id"] = "123456789"
+context["confluence_olm_json_attached"] = True
+context["confluence_olm_json_name"] = "lab1-preprod-catalog_mirror_check.json"
 
 # Same as tasks/90_render_report.yml's slurp: base64 of each embedded font.
 FONTS_DIR = os.path.join(TEMPLATES_DIR, "fonts")
