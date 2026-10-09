@@ -229,38 +229,48 @@ aap_confluence:
   url: https://example.atlassian.net
   space_key: IT                     # from /wiki/spaces/<KEY>/...
   parent_id: "1234567890"           # folder or page ID (the number in its URL)
+  email: reports@example.com        # Atlassian account the token belongs to
+  token_env: HASHI_TOKEN            # variable the credential injects the token into
 aap_confluence_credential: <existing credential name>
 ```
 
 **The credential.** Confluence Cloud logs in with an Atlassian account email
 plus an API token (id.atlassian.com > Security > API tokens); that account
-needs permission to add/edit pages and attachments in the space. The job
-reads them from `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN`, so an AAP admin
-creates, once, a custom credential type (Administration > Credential Types >
-Add):
+needs permission to add/edit pages and attachments in the space. The email
+isn't secret: put it in `aap_confluence.email`. The token comes from an
+attached AAP credential, through the environment variable
+`aap_confluence.token_env` names. Use whichever credential type you have:
 
-```yaml
-# Input configuration
-fields:
-  - {id: email, type: string, label: Atlassian account email}
-  - {id: token, type: string, label: Confluence API token, secret: true}
-required: [email, token]
-```
+- **An existing type with one secret field**, e.g. "Hashicorp Vault Token"
+  (injects `HASHI_TOKEN`): create a credential of that type holding the
+  Confluence API token - give it a clear name, such as "Confluence API token
+  (pre-upgrade health check)" - and set `token_env: HASHI_TOKEN`. AAP allows
+  one credential per type on a job template, so this only works if the
+  template doesn't also need a real credential of that type.
+- **A dedicated type**, if an AAP admin can create one (Administration >
+  Credential Types > Add):
 
-```yaml
-# Injector configuration
-env:
-  CONFLUENCE_EMAIL: "{{ email }}"
-  CONFLUENCE_API_TOKEN: "{{ token }}"
-```
+  ```yaml
+  # Input configuration
+  fields:
+    - {id: token, type: string, label: Confluence API token, secret: true}
+  required: [token]
+  ```
 
-then a credential of that type with the account's email and token.
-`configure.yaml` only attaches it by name - it never creates or changes
-credentials.
+  ```yaml
+  # Injector configuration
+  env:
+    CONFLUENCE_API_TOKEN: "{{ token }}"
+  ```
+
+  and keep `token_env: CONFLUENCE_API_TOKEN`.
+
+Then set `aap_confluence_credential` to the credential's name.
+`configure.yaml` only attaches it - it never creates or changes credentials.
 
 On the command line, set `confluence_enabled: true` and the other
-`confluence_*` settings (`group_vars/all.yml`, or `-e`), and export the two
-variables (`read -rsp 'Confluence API token: ' CONFLUENCE_API_TOKEN; export CONFLUENCE_API_TOKEN`).
+`confluence_*` settings (`group_vars/all.yml`, or `-e`), and export the token
+(`read -rsp 'Confluence API token: ' CONFLUENCE_API_TOKEN; export CONFLUENCE_API_TOKEN`).
 
 ## Execution environment (optional)
 

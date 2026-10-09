@@ -80,8 +80,13 @@ aap_confluence:
   url: https://CHANGE-ME.atlassian.net
   space_key: CHANGE-ME              # from /wiki/spaces/<KEY>/...
   parent_id: CHANGE-ME              # folder or page ID (the number in its URL)
-# Existing AAP credential that injects CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN
-# (a custom credential type - see aap/README.md). Only attached, never created.
+  email: CHANGE-ME@example.com      # Atlassian account the API token belongs to
+  # Environment variable the attached credential puts the API token in:
+  # CONFLUENCE_API_TOKEN, or e.g. HASHI_TOKEN for an existing
+  # "Hashicorp Vault Token" credential that holds the Confluence token.
+  token_env: CONFLUENCE_API_TOKEN
+# Existing AAP credential that injects the API token (into token_env). Only
+# attached, never created.
 aap_confluence_credential: ""
 
 # Fixed extra vars for every launch (not asked in the survey).

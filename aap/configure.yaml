@@ -160,7 +160,9 @@
                                                       'survey_advanced_allowlist': survey_advanced_allowlist})
                         | combine({'confluence_enabled': true, 'confluence_url': aap_confluence.url,
                                    'confluence_space_key': aap_confluence.space_key,
-                                   'confluence_parent_id': aap_confluence.parent_id | string}
+                                   'confluence_parent_id': aap_confluence.parent_id | string,
+                                   'confluence_email': aap_confluence.email,
+                                   'confluence_api_token_env': aap_confluence.token_env | default('CONFLUENCE_API_TOKEN')}
                                   if aap_confluence.enabled | bool else {}) }}"
         survey_enabled: true
         # Survey answers become extra vars. ocp_password (when asked) is a

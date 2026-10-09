@@ -6,8 +6,9 @@
 # + findings); the .html and .md reports are attached under stable names, so
 # each run adds a new version of the same attachment.
 #
-# Auth: Atlassian account email + API token as basic auth, from
-# CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN (url_password is never logged).
+# Auth: Atlassian account email + API token as basic auth; the token from the
+# environment variable confluence_api_token_env names (url_password is never
+# logged).
 # API: v2 for spaces/pages, v1 for attachments (v2 has no upload).
 # Best-effort: any failure is reported (rescue) and never fails the run.
 - name: Publish the report to Confluence
@@ -22,7 +23,8 @@
           - confluence_api_token | length > 0
         fail_msg: >-
           confluence_enabled is true but a setting is missing: confluence_url, confluence_space_key,
-          confluence_parent_id, and CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN in the environment.
+          confluence_parent_id, confluence_email (or CONFLUENCE_EMAIL), and the API token in the
+          {{ confluence_api_token_env }} environment variable.
         quiet: true
 
     - name: Look up the Confluence space {{ confluence_space_key }}
