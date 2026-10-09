@@ -375,6 +375,26 @@ report_basename: "ocp-preupgrade-health-{{ cluster_id_short | default('cluster')
 fail_on_critical: true              # fail the play at the end if critical findings were recorded
 
 # -----------------------------------------------------------------------------
+# Publish the report to Confluence Cloud (tasks/95_confluence.yml)
+# -----------------------------------------------------------------------------
+# One page per cluster, updated on every run - Confluence's page history keeps
+# the earlier runs. The page shows the summary and all findings (status and
+# expand macros); the full HTML and Markdown reports are attached to it.
+# A failed publish is reported but never fails the health check.
+confluence_enabled: false
+confluence_url: ""                  # e.g. https://example.atlassian.net
+confluence_space_key: ""            # e.g. IT (from /wiki/spaces/<KEY>/...)
+confluence_parent_id: ""            # folder or page ID the cluster pages go under
+confluence_page_title: "OCP pre-upgrade health check - {{ cluster_folder }}"
+confluence_attach_reports: true     # attach the .html and .md reports to the page
+confluence_validate_certs: true
+# Atlassian account email + API token (id.atlassian.com > Security > API
+# tokens). From the environment only - in AAP, a custom credential type your
+# admin creates injects them; never put them in a file.
+confluence_email: "{{ lookup('env', 'CONFLUENCE_EMAIL') }}"
+confluence_api_token: "{{ lookup('env', 'CONFLUENCE_API_TOKEN') }}"
+
+# -----------------------------------------------------------------------------
 # AAP survey "Options" / "Advanced settings": defined in aap/vars.yaml
 # (survey_option_flags, survey_option_defaults, survey_advanced_allowlist).
 # aap/configure.yaml builds the survey from them and passes the flags and the

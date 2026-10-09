@@ -223,6 +223,11 @@ server itself doesn't accept passwords), every task then uses the token, and
 password stays out of the command line (`ps`) and shell history; in AAP,
 pass it from a Password-type survey field.
 
+Reports can also be published to Confluence Cloud - one page per cluster,
+updated every run, with the HTML/Markdown reports attached
+(`confluence_*` in `group_vars/all.yml`; directions in `aap/README.md`,
+"Publish to Confluence").
+
 At the end of every run the summary (overall status, counts, CRITICAL
 findings) is published with `set_stats` under `ocp_preupgrade_health.<cluster>`:
 in AAP it shows as the job's artifacts and reaches later workflow nodes.
@@ -1031,12 +1036,14 @@ at a real cluster.
 │   ├── 89a_catalog_opm_render_one.yml    # included per catalog from 89
 │   ├── 89b_catalog_mirror_check.yml      # IDMS/ICSP/ITMS checks -> outputs/<cluster>/operators/catalog_mirror_check.json
 │   ├── 90_render_report.yml              # renders templates, set_stats summary, fails on CRITICAL
+│   ├── 95_confluence.yml                 # optional: publish one page per cluster to Confluence Cloud
 │   └── 99_oauth_logout.yml               # password method: revokes the OAuth token (always runs)
 ├── templates/
 │   ├── report.md.j2
 │   ├── report.html.j2                    # PatternFly 6 look
 │   ├── report_summary.html.j2
 │   ├── cluster_operators_installed.md.j2
+│   ├── report.confluence.xhtml.j2        # Confluence page body (storage format)
 │   └── fonts/                            # Red Hat fonts embedded in the HTML report (SIL OFL 1.1)
 ├── aap/
 │   ├── README.md                         # how to run configure.yaml

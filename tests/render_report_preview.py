@@ -237,6 +237,10 @@ cluster_operators_snapshot_data = f.cluster_operators_snapshot(
     fx.COSNAP_SUBSCRIPTIONS, fx.COSNAP_CSVS, fx.COSNAP_CATALOGSOURCES, "4.18.14", "4.20.32", "eus-4.20",
 )
 
+# tasks/95_confluence.yml sets these for the Confluence page template.
+context["confluence_attach_reports"] = True
+context["confluence_attachment_basename"] = "lab1-preprod-preupgrade-report"
+
 # Same as tasks/90_render_report.yml's slurp: base64 of each embedded font.
 FONTS_DIR = os.path.join(TEMPLATES_DIR, "fonts")
 context["report_fonts"] = {
@@ -262,12 +266,15 @@ env = jinja2.Environment(
 )
 # Ansible's template module auto-registers filter_plugins/*.py; plain jinja2 doesn't, so wire it up here.
 env.filters["md_cell"] = f.md_cell
+# Ansible's bool filter, for templates that use it (report.confluence.xhtml.j2).
+env.filters["bool"] = lambda v: v if isinstance(v, bool) else str(v).strip().lower() in ("true", "yes", "on", "1")
 
 TEMPLATES = [
     ("report.md.j2", "preview.md"),
     ("report.html.j2", "preview.html"),
     ("report_summary.html.j2", "preview.summary.html"),
     ("cluster_operators_installed.md.j2", "preview.cluster_operators_installed.md"),
+    ("report.confluence.xhtml.j2", "preview.confluence.xhtml"),
 ]
 
 errors = []
@@ -330,6 +337,16 @@ else:
             else:
                 print(f"[FAIL] {tpl_name} through ansible-playbook: {msg}")
                 errors.append(tpl_name + " (ansible)")
+
+# Confluence rejects page content that isn't well-formed XHTML.
+import xml.dom.minidom  # noqa: E402
+try:
+    with open(os.path.join(OUT_DIR, "preview.confluence.xhtml")) as fh:
+        xml.dom.minidom.parseString('<r xmlns:ac="ac" xmlns:ri="ri">' + fh.read() + "</r>")
+    print("[OK] report.confluence.xhtml.j2 is well-formed XHTML")
+except Exception as exc:  # noqa: BLE001
+    print(f"[FAIL] report.confluence.xhtml.j2 is not well-formed XHTML: {exc}")
+    errors.append("report.confluence.xhtml.j2 (XHTML)")
 
 if errors:
     sys.exit(1)

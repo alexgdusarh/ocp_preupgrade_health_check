@@ -209,6 +209,59 @@ in the job's extra vars. Every job then runs as that user: it needs
 `cluster-reader` plus `pods/exec` where the checks exec (etcd, ODF/Ceph,
 catalog pods, ACM namespaces).
 
+## Publish to Confluence (optional)
+
+Each run can publish its report to Confluence Cloud: **one page per
+cluster** ("OCP pre-upgrade health check - <cluster>") under a folder or page
+you choose, updated on every run - the page history keeps the earlier runs.
+The page shows the summary and all findings with Confluence's own status and
+expand macros; the full `.html` and `.md` reports are attached under stable
+names, so each run adds a new version of the same two attachments. The page
+link is also in the job's artifacts (`confluence_page_url`). Publishing is
+best-effort: if it fails, the job output says why and the health check
+result is unaffected.
+
+In `aap/vars.yaml`:
+
+```yaml
+aap_confluence:
+  enabled: true
+  url: https://example.atlassian.net
+  space_key: IT                     # from /wiki/spaces/<KEY>/...
+  parent_id: "1234567890"           # folder or page ID (the number in its URL)
+aap_confluence_credential: <existing credential name>
+```
+
+**The credential.** Confluence Cloud logs in with an Atlassian account email
+plus an API token (id.atlassian.com > Security > API tokens); that account
+needs permission to add/edit pages and attachments in the space. The job
+reads them from `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN`, so an AAP admin
+creates, once, a custom credential type (Administration > Credential Types >
+Add):
+
+```yaml
+# Input configuration
+fields:
+  - {id: email, type: string, label: Atlassian account email}
+  - {id: token, type: string, label: Confluence API token, secret: true}
+required: [email, token]
+```
+
+```yaml
+# Injector configuration
+env:
+  CONFLUENCE_EMAIL: "{{ email }}"
+  CONFLUENCE_API_TOKEN: "{{ token }}"
+```
+
+then a credential of that type with the account's email and token.
+`configure.yaml` only attaches it by name - it never creates or changes
+credentials.
+
+On the command line, set `confluence_enabled: true` and the other
+`confluence_*` settings (`group_vars/all.yml`, or `-e`), and export the two
+variables (`read -rsp 'Confluence API token: ' CONFLUENCE_API_TOKEN; export CONFLUENCE_API_TOKEN`).
+
 ## Execution environment (optional)
 
 The project and job template use the EE named `aap_execution_environment`.

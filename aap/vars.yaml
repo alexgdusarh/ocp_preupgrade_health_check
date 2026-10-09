@@ -72,6 +72,18 @@ aap_default_upgrade_channel: eus
 # never creates or changes credentials. "" = users type their own login.
 aap_ocp_credential: ""
 
+# --- Publish each run to Confluence Cloud (optional) ----------------------------
+# One page per cluster under aap_confluence.parent_id (a folder or a page),
+# updated every run (see "Publish to Confluence" in aap/README.md).
+aap_confluence:
+  enabled: false
+  url: https://CHANGE-ME.atlassian.net
+  space_key: CHANGE-ME              # from /wiki/spaces/<KEY>/...
+  parent_id: CHANGE-ME              # folder or page ID (the number in its URL)
+# Existing AAP credential that injects CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN
+# (a custom credential type - see aap/README.md). Only attached, never created.
+aap_confluence_credential: ""
+
 # Fixed extra vars for every launch (not asked in the survey).
 aap_job_extra_vars:
   ocp_auth_method: password

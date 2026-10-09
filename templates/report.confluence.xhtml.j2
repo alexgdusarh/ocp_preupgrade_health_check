@@ -1,0 +1,50 @@
+{#- Confluence Cloud "storage format" (restricted XHTML) for the per-cluster
+    page tasks/95_confluence.yml publishes. Confluence strips <style> and
+    scripts, so this uses its own macros instead: "status" for the
+    severity badges and "expand" for long lists. Every value goes through
+    | e - the page must be well-formed XML or the API rejects it. Only
+    strings are printed inside the macro (see the note in report.html.j2). -#}
+{%- macro lozenge(sev) -%}
+<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">{{ {'CRITICAL': 'Red', 'WARNING': 'Yellow', 'OK': 'Green', 'INFO': 'Blue'}.get(sev | string, 'Grey') }}</ac:parameter><ac:parameter ac:name="title">{{ sev | string | e }}</ac:parameter></ac:structured-macro>
+{%- endmacro -%}
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>Generated {{ report_generated_at | e }} (UTC) by the OpenShift pre-upgrade health check.{% if confluence_attach_reports | default(true) | bool %} The full HTML and Markdown reports are attached to this page.{% endif %} Earlier runs are in this page's history.</p></ac:rich-text-body></ac:structured-macro>
+<table><tbody>
+<tr><th>Cluster</th><td>{{ cluster_name | e }}</td></tr>
+<tr><th>Cluster ID</th><td><code>{{ cluster_id | e }}</code></td></tr>
+<tr><th>API URL</th><td>{{ cluster_api_url | default('') | e }}</td></tr>
+<tr><th>Current version</th><td>{{ current_version | e }} (channel: {{ current_channel | default('') | e }})</td></tr>
+<tr><th>Target version</th><td>{{ upgrade_target_version | e if upgrade_target_version | length > 0 else 'not specified' }}</td></tr>
+{% if (upgrade_path_result | default({})).found | default(false) %}
+<tr><th>Upgrade path</th><td><code>{{ upgrade_path_result.hops | join(' -> ') | e }}</code></td></tr>
+{% endif %}
+<tr><th>Overall status</th><td>{{ lozenge(overall_status) }}</td></tr>
+<tr><th>Findings</th><td>{{ (critical_findings | length) ~ ' critical, ' ~ (warning_findings | length) ~ ' warning, ' ~ (info_findings | length) ~ ' info' }}</td></tr>
+</tbody></table>
+<h2>CRITICAL and WARNING findings</h2>
+{% if (critical_findings + warning_findings) | length == 0 %}
+<p>No CRITICAL or WARNING findings. The cluster looks ready for the upgrade based on these checks.</p>
+{% else %}
+<table><tbody>
+<tr><th>Severity</th><th>Section</th><th>Summary</th></tr>
+{% for f in critical_findings + warning_findings %}
+<tr><td>{{ lozenge(f.severity) }}</td><td>{{ f.section | e }}</td><td>{{ f.summary | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+{% if info_findings | length > 0 %}
+<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">{{ 'INFO findings (' ~ (info_findings | length) ~ ')' }}</ac:parameter><ac:rich-text-body>
+<table><tbody>
+<tr><th>Section</th><th>Summary</th></tr>
+{% for f in info_findings %}
+<tr><td>{{ f.section | e }}</td><td>{{ f.summary | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+</ac:rich-text-body></ac:structured-macro>
+{% endif %}
+{% if confluence_attach_reports | default(true) | bool %}
+<h2>Full reports</h2>
+<ul>
+<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.html" /></ac:link> - full report (open in a browser)</li>
+<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.md" /></ac:link> - Markdown, git-friendly</li>
+</ul>
+{% endif %}
