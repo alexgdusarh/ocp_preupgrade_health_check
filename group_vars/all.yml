@@ -378,8 +378,8 @@ fail_on_critical: true              # fail the play at the end if critical findi
 # Publish the report to Confluence Cloud (tasks/95_confluence.yml)
 # -----------------------------------------------------------------------------
 # One page per cluster, updated on every run - Confluence's page history keeps
-# the earlier runs. The page shows the summary and all findings (status and
-# expand macros); the full HTML and Markdown reports are attached to it.
+# the earlier runs. The page holds the full report (status, expand and toc
+# macros); the HTML and Markdown reports are attached to it.
 # A failed publish is reported but never fails the health check.
 confluence_enabled: false
 confluence_url: ""                  # e.g. https://example.atlassian.net
@@ -388,6 +388,12 @@ confluence_parent_id: ""            # folder or page ID the cluster pages go und
 confluence_page_title: "OCP pre-upgrade health check - {{ cluster_folder }}"
 confluence_attach_reports: true     # attach the .html and .md reports to the page
 confluence_validate_certs: true
+# Confluence Cloud sometimes answers 5xx (e.g. 500 "Transaction rolled back")
+# or 429 (rate limit); -1 = no connection. Those calls are retried after a
+# pause instead of failing the publish.
+confluence_retries: 5
+confluence_retry_delay: 15          # seconds between attempts
+confluence_retry_status: [-1, 429, 500, 502, 503, 504]
 # Atlassian account email (not secret: a setting, or CONFLUENCE_EMAIL) and
 # API token (id.atlassian.com > Security > API tokens) - the token only from an
 # environment variable, never a file. confluence_api_token_env names that
