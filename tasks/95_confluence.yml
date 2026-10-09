@@ -5,7 +5,8 @@
 # keeps the earlier runs. Body: templates/report.confluence.xhtml.j2 (the
 # full report, every section of report.html.j2); the .html and .md reports
 # are also attached under stable names, so each run adds a new version of the
-# same attachment.
+# same attachment, and the page links to their direct download URLs (which
+# need the page ID, hence: create if missing, attach, then write the body).
 #
 # Auth: Atlassian account email + API token as basic auth; the token from the
 # environment variable confluence_api_token_env names (url_password is never
@@ -54,17 +55,9 @@
         return_content: true
       register: _cf_found
 
-    - name: Get the page's current version (existing page only)
-      ansible.builtin.uri:
-        url: "{{ _cf_api }}/api/v2/pages/{{ _cf_found.json.results[0].id }}"
-        url_username: "{{ confluence_email }}"
-        url_password: "{{ confluence_api_token }}"
-        force_basic_auth: true
-        validate_certs: "{{ confluence_validate_certs }}"
-        return_content: true
-      register: _cf_current
-      when: _cf_found.json.results | default([]) | length > 0
-
+    # Created with a placeholder first so the page ID exists before the body
+    # is written: the body links to the attachments' download URLs, which
+    # contain it. The full body follows below as version 2.
     - name: Create the page (first run for this cluster)
       ansible.builtin.uri:
         url: "{{ _cf_api }}/api/v2/pages"
@@ -81,34 +74,19 @@
           parentId: "{{ confluence_parent_id | string }}"
           body:
             representation: storage
-            value: "{{ _cf_body }}"
+            value: "<p>The pre-upgrade health check report is being published.</p>"
         status_code: [200, 201]
         return_content: true
       register: _cf_created
       when: _cf_found.json.results | default([]) | length == 0
 
-    - name: Update the page (new version)
-      ansible.builtin.uri:
-        url: "{{ _cf_api }}/api/v2/pages/{{ _cf_current.json.id }}"
-        method: PUT
-        url_username: "{{ confluence_email }}"
-        url_password: "{{ confluence_api_token }}"
-        force_basic_auth: true
-        validate_certs: "{{ confluence_validate_certs }}"
-        body_format: json
-        # One expression, so version.number stays a number (a YAML scalar
-        # would be sent as the string "2").
-        body: "{{ {'id': _cf_current.json.id, 'status': 'current', 'title': confluence_page_title,
-                   'body': {'representation': 'storage', 'value': _cf_body},
-                   'version': {'number': (_cf_current.json.version.number | int) + 1,
-                               'message': report_generated_at ~ ': ' ~ overall_status}} }}"
-        return_content: true
-      register: _cf_updated
-      when: _cf_current is not skipped
+    - name: Remember the page ID
+      ansible.builtin.set_fact:
+        confluence_page_id: "{{ (_cf_created.json.id if _cf_created is not skipped else _cf_found.json.results[0].id) | string }}"
 
     - name: Attach the HTML and Markdown reports (stable names, new version each run)
       ansible.builtin.uri:
-        url: "{{ _cf_api }}/rest/api/content/{{ _cf_page.id }}/child/attachment"
+        url: "{{ _cf_api }}/rest/api/content/{{ confluence_page_id }}/child/attachment"
         method: PUT
         url_username: "{{ confluence_email }}"
         url_password: "{{ confluence_api_token }}"
@@ -132,6 +110,34 @@
         label: "{{ confluence_attachment_basename }}.{{ item.ext }}"
       when: confluence_attach_reports | bool
 
+    - name: Get the page's current version
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages/{{ confluence_page_id }}"
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        return_content: true
+      register: _cf_current
+
+    - name: Write the report to the page (new version)
+      ansible.builtin.uri:
+        url: "{{ _cf_api }}/api/v2/pages/{{ confluence_page_id }}"
+        method: PUT
+        url_username: "{{ confluence_email }}"
+        url_password: "{{ confluence_api_token }}"
+        force_basic_auth: true
+        validate_certs: "{{ confluence_validate_certs }}"
+        body_format: json
+        # One expression, so version.number stays a number (a YAML scalar
+        # would be sent as the string "2").
+        body: "{{ {'id': confluence_page_id, 'status': 'current', 'title': confluence_page_title,
+                   'body': {'representation': 'storage', 'value': _cf_body},
+                   'version': {'number': (_cf_current.json.version.number | int) + 1,
+                               'message': report_generated_at ~ ': ' ~ overall_status}} }}"
+        return_content: true
+      register: _cf_updated
+
     - name: Remember the page link
       ansible.builtin.set_fact:
         confluence_page_url: "{{ confluence_url | regex_replace('/+$', '') }}/wiki{{ _cf_page._links.webui | default('/pages/viewpage.action?pageId=' ~ _cf_page.id) }}"
@@ -150,5 +156,5 @@
   vars:
     _cf_api: "{{ confluence_url | regex_replace('/+$', '') }}/wiki"
     _cf_body: "{{ lookup('ansible.builtin.template', 'report.confluence.xhtml.j2') }}"
-    _cf_page: "{{ (_cf_created.json if _cf_created is not skipped else _cf_updated.json) | default({}) }}"
+    _cf_page: "{{ _cf_updated.json | default({}) }}"
     confluence_attachment_basename: "{{ cluster_folder }}-preupgrade-report"
