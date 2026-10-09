@@ -223,8 +223,8 @@ server itself doesn't accept passwords), every task then uses the token, and
 password stays out of the command line (`ps`) and shell history; in AAP,
 pass it from a Password-type survey field.
 
-Reports can also be published to Confluence Cloud - one page per cluster,
-updated every run, with the HTML/Markdown reports attached
+Reports can also be published to Confluence Cloud - one page per cluster
+with the full report, updated every run, with the HTML/Markdown reports attached
 (`confluence_*` in `group_vars/all.yml`; directions in `aap/README.md`,
 "Publish to Confluence").
 

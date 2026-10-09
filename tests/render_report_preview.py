@@ -169,7 +169,9 @@ context = dict(
     px_sc_phase="Online",
     px_image="portworx/oci-monitor:3.1.2",
     px_storagenodes=[{"metadata": {"name": "worker-0"}, "status": {"phase": "Online"}}],
-    pxctl_status_output="Status: PX is operational\nLicense: Trial\nNodes: 3 total, 3 online",
+    # The ANSI colour codes real pxctl prints: XML forbids \x1b, so the
+    # Confluence template must strip it (checked by the XHTML parse below).
+    pxctl_status_output="Status: \x1b[32mPX is operational\x1b[0m\nLicense: Trial\nNodes: 3 total, 3 online",
     pxctl_license_output="License ID: XXXX\nExpires: 2027-01-01",
     portworx_manual_checklist=[
         "Confirm the installed Portworx version supports 4.17 in the compatibility matrix.",
@@ -266,8 +268,10 @@ env = jinja2.Environment(
 )
 # Ansible's template module auto-registers filter_plugins/*.py; plain jinja2 doesn't, so wire it up here.
 env.filters["md_cell"] = f.md_cell
-# Ansible's bool filter, for templates that use it (report.confluence.xhtml.j2).
+# Ansible's bool and regex_replace filters, for templates that use them
+# (report.confluence.xhtml.j2).
 env.filters["bool"] = lambda v: v if isinstance(v, bool) else str(v).strip().lower() in ("true", "yes", "on", "1")
+env.filters["regex_replace"] = lambda v, pattern="", replacement="": re.sub(pattern, replacement, str(v))
 
 TEMPLATES = [
     ("report.md.j2", "preview.md"),

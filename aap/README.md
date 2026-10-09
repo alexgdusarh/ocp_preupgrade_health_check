@@ -214,9 +214,11 @@ catalog pods, ACM namespaces).
 Each run can publish its report to Confluence Cloud: **one page per
 cluster** ("OCP pre-upgrade health check - <cluster>") under a folder or page
 you choose, updated on every run - the page history keeps the earlier runs.
-The page shows the summary and all findings with Confluence's own status and
-expand macros; the full `.html` and `.md` reports are attached under stable
-names, so each run adds a new version of the same two attachments. The page
+The page holds the full report - the summary, then all 14 sections as in
+the HTML report - with Confluence's own status, expand and table-of-contents
+macros (long tables and raw command output start collapsed). The `.html` and
+`.md` reports are also attached under stable names, so each run adds a new
+version of the same two attachments. The page
 link is also in the job's artifacts (`confluence_page_url`). Publishing is
 best-effort: if it fails, the job output says why and the health check
 result is unaffected.

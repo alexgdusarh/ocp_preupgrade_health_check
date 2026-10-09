@@ -1,17 +1,42 @@
 {#- Confluence Cloud "storage format" (restricted XHTML) for the per-cluster
-    page tasks/95_confluence.yml publishes. Confluence strips <style> and
-    scripts, so this uses its own macros instead: "status" for the
-    severity badges and "expand" for long lists. Every value goes through
-    | e - the page must be well-formed XML or the API rejects it. Only
-    strings are printed inside the macro (see the note in report.html.j2). -#}
-{%- macro lozenge(sev) -%}
-<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">{{ {'CRITICAL': 'Red', 'WARNING': 'Yellow', 'OK': 'Green', 'INFO': 'Blue'}.get(sev | string, 'Grey') }}</ac:parameter><ac:parameter ac:name="title">{{ sev | string | e }}</ac:parameter></ac:structured-macro>
+    page tasks/95_confluence.yml publishes: the full report, section by
+    section as in report.html.j2. Confluence strips <style> and scripts, so
+    this uses its own macros instead: "status" for the severity badges,
+    "expand" for long tables and raw output, "toc" for navigation. Every
+    value goes through | e and named HTML entities are not used (only
+    literal characters) - the page must be well-formed XML or the API
+    rejects it. Only strings are printed inside a macro (see the note in
+    report.html.j2). -#}
+{%- macro lozenge(sev, title=none) -%}
+<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">{{ {'CRITICAL': 'Red', 'WARNING': 'Yellow', 'OK': 'Green', 'INFO': 'Blue'}.get(sev | string, 'Grey') }}</ac:parameter><ac:parameter ac:name="title">{{ (sev if title is none else title) | string | e }}</ac:parameter></ac:structured-macro>
 {%- endmacro -%}
-<ac:structured-macro ac:name="info"><ac:rich-text-body><p>Generated {{ report_generated_at | e }} (UTC) by the OpenShift pre-upgrade health check.{% if confluence_attach_reports | default(true) | bool %} The full HTML and Markdown reports are attached to this page.{% endif %} Earlier runs are in this page's history.</p></ac:rich-text-body></ac:structured-macro>
+{#- Severity tally for an expand title, e.g. ": 2 CRITICAL, 5 OK", so a
+    collapsed block still shows whether it needs opening. -#}
+{%- macro counts(rows) -%}
+{%- for s in ['CRITICAL', 'WARNING', 'INFO', 'OK'] if rows | selectattr('severity', 'equalto', s) | list | length > 0 -%}
+{{ (': ' if loop.first else ', ') ~ (rows | selectattr('severity', 'equalto', s) | list | length) ~ ' ' ~ s }}
+{%- endfor -%}
+{%- endmacro -%}
+{%- macro expand(title) -%}
+<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">{{ title | e }}</ac:parameter><ac:rich-text-body>
+{{ caller() }}
+</ac:rich-text-body></ac:structured-macro>
+{%- endmacro -%}
+{%- macro checklist(items) -%}
+<p><strong>Manual checklist (verify before upgrading)</strong></p>
+<ul>
+{% for item in items %}<li>{{ item | e }}</li>
+{% endfor %}</ul>
+{%- endmacro -%}
+{#- XML 1.0 forbids most control characters (e.g. the ANSI colour codes in
+    raw pxctl/ceph output), and one would make Confluence reject the page. -#}
+{% filter regex_replace('[\x00-\x08\x0b\x0c\x0e-\x1f]', '') %}
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>Generated {{ report_generated_at | e }} (UTC) by the OpenShift pre-upgrade health check.{% if confluence_attach_reports | default(true) | bool %} The same report is attached as HTML and Markdown.{% endif %} Earlier runs are in this page's history.</p></ac:rich-text-body></ac:structured-macro>
 <table><tbody>
 <tr><th>Cluster</th><td>{{ cluster_name | e }}</td></tr>
 <tr><th>Cluster ID</th><td><code>{{ cluster_id | e }}</code></td></tr>
-<tr><th>API URL</th><td>{{ cluster_api_url | default('') | e }}</td></tr>
+<tr><th>API URL</th><td>{{ cluster_api_url | default('') | e if cluster_api_url | default('') | length > 0 else 'unknown' }}</td></tr>
+<tr><th>Console URL</th><td>{% if cluster_console_url | default('') | length > 0 %}<a href="{{ cluster_console_url | e }}">{{ cluster_console_url | e }}</a>{% else %}unknown{% endif %}</td></tr>
 <tr><th>Current version</th><td>{{ current_version | e }} (channel: {{ current_channel | default('') | e }})</td></tr>
 <tr><th>Target version</th><td>{{ upgrade_target_version | e if upgrade_target_version | length > 0 else 'not specified' }}</td></tr>
 {% if (upgrade_path_result | default({})).found | default(false) %}
@@ -20,7 +45,24 @@
 <tr><th>Overall status</th><td>{{ lozenge(overall_status) }}</td></tr>
 <tr><th>Findings</th><td>{{ (critical_findings | length) ~ ' critical, ' ~ (warning_findings | length) ~ ' warning, ' ~ (info_findings | length) ~ ' info' }}</td></tr>
 </tbody></table>
-<h2>CRITICAL and WARNING findings</h2>
+{% if upgrade_target_version | length > 0 %}
+<p><em>Update path check: <code>{{ upgrade_target_version | e }}</code> is {{ 'a recommended update.' if target_is_recommended | default(false) else ('a conditional update - review its risks before proceeding.' if target_is_conditional | default(false) else 'NOT currently listed in availableUpdates/conditionalUpdates - verify with oc adm upgrade.') }}</em></p>
+{% endif %}
+{% if upgrade_channel_resolution.channel is defined %}
+<p><em><strong>Upgrade channel resolution</strong> (<code>upgrade_channel: {{ upgrade_channel | e }}</code>{{ ' - auto-derived' if upgrade_channel_resolution.auto_derived else '' }}): resolved to <code>{{ upgrade_channel_resolution.channel | e }}</code>, target <strong>{{ (upgrade_channel_resolution.target_major ~ '.' ~ upgrade_channel_resolution.target_minor) | e }}</strong>{{ ' (EUS jump)' if upgrade_channel_resolution.is_eus_jump else '' }}. {{ upgrade_channel_resolution.reasoning | e }}.</em></p>
+{% if not (upgrade_path_result.found | default(false)) %}
+<p><em>No hop-by-hop path available: {{ upgrade_path_result.reason | default('unknown') | e }}</em></p>
+{% endif %}
+{% if _upgrade_target_was_explicit | default(false) %}
+<p><em>Overridden: <code>upgrade_target_version={{ upgrade_target_version | e }}</code> was set explicitly and takes precedence over this channel's resolved path.</em></p>
+{% endif %}
+{% endif %}
+{% if upgrade_channel_resolution.error is defined %}
+<p><em><strong>Upgrade channel resolution error</strong>: could not resolve <code>upgrade_channel: {{ upgrade_channel | e }}</code> - {{ upgrade_channel_resolution.error | e }}</em></p>
+{% endif %}
+<ac:structured-macro ac:name="toc"><ac:parameter ac:name="maxLevel">2</ac:parameter></ac:structured-macro>
+
+<h2>1. Findings</h2>
 {% if (critical_findings + warning_findings) | length == 0 %}
 <p>No CRITICAL or WARNING findings. The cluster looks ready for the upgrade based on these checks.</p>
 {% else %}
@@ -32,19 +74,425 @@
 </tbody></table>
 {% endif %}
 {% if info_findings | length > 0 %}
-<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">{{ 'INFO findings (' ~ (info_findings | length) ~ ')' }}</ac:parameter><ac:rich-text-body>
+{% call expand('INFO findings (' ~ (info_findings | length) ~ ')') %}
 <table><tbody>
 <tr><th>Section</th><th>Summary</th></tr>
 {% for f in info_findings %}
 <tr><td>{{ f.section | e }}</td><td>{{ f.summary | e }}</td></tr>
 {% endfor %}
 </tbody></table>
-</ac:rich-text-body></ac:structured-macro>
+{% endcall %}
+{% endif %}
+
+<h2>2. ClusterVersion</h2>
+<p>Available=<strong>{{ cv_available | e }}</strong> · Progressing=<strong>{{ cv_progressing | e }}</strong> · Failing=<strong>{{ cv_degraded | e }}</strong> · RetrievedUpdates=<strong>{{ cv_retrieved_updates | e }}</strong> · last history state=<strong>{{ cv_last_history_state | e }}</strong></p>
+{% call expand('Update history (' ~ (cv_history | length) ~ ' entries)') %}
+<table><tbody>
+<tr><th>Version</th><th>State</th><th>Started</th><th>Completed</th><th>Verified</th></tr>
+{% for h in cv_history %}
+<tr><td>{{ h.version | e }}</td><td>{{ h.state | e }}</td><td>{{ h.startedTime | default('') | e }}</td><td>{{ h.completionTime | default('') | e }}</td><td>{{ h.verified | default('') | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+
+<h2>3. etcd cluster health</h2>
+<p><em>Read-only checks only - <code>etcdctl check perf</code> is deliberately not run (it generates write load and can grow the etcd DB; see the manual checklist below). "IO health" comes from <code>etcdctl endpoint health</code>'s own round-trip timer (no extra load generated).</em></p>
+<table><tbody>
+<tr><th>Pod</th><th>Node</th><th>Phase</th><th>Ready</th><th>Status</th></tr>
+{% for p in etcd_health_data.pods %}
+<tr><td>{{ p.name | e }}</td><td>{{ p.node | e }}</td><td>{{ p.phase | e }}</td><td>{{ p.ready | e }}</td><td>{{ lozenge(p.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+<table><tbody>
+<tr><th>Endpoint</th><th>Healthy</th><th>Round trip</th><th>Status</th></tr>
+{% for h in etcd_health_data.health %}
+<tr><td><code>{{ h.endpoint | e }}</code></td><td>{{ h.healthy | e }}</td><td>{{ ((h.took_ms | string ~ 'ms') if h.took_ms is not none else 'n/a') | e }}{{ (' - ' ~ h.error) | e if h.error else '' }}</td><td>{{ lozenge(h.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+<table><tbody>
+<tr><th>Endpoint</th><th>Version</th><th>dbSize</th><th>dbSize in use</th><th>% of quota</th><th>Leader ID</th><th>Raft term</th><th>Learner</th><th>Status</th></tr>
+{% for s in etcd_health_data.status %}
+<tr><td><code>{{ s.endpoint | e }}</code></td><td>{{ s.version | e }}</td><td>{{ s.db_size_mb | e }}MB</td><td>{{ s.db_size_in_use_mb | e }}MB</td><td>{{ s.db_quota_pct | e }}%</td><td>{{ s.leader | e }}</td><td>{{ s.raft_term | e }}</td><td>{{ s.is_learner | e }}</td><td>{{ lozenge(s.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% if etcd_health_data.cluster_findings | length > 0 %}
+<ul>
+{% for cf in etcd_health_data.cluster_findings %}<li>{{ lozenge(cf.severity) }} {{ cf.message | e }}</li>
+{% endfor %}</ul>
+{% endif %}
+{% if etcd_health_data.alarms | length > 0 %}
+<p><strong>Active etcd alarms:</strong></p>
+<ul>
+{% for a in etcd_health_data.alarms %}<li>{{ lozenge(a.severity) }} {{ a.raw | e }}</li>
+{% endfor %}</ul>
+{% endif %}
+{% call expand('etcdctl endpoint health (raw)') %}<pre>{{ etcdctl_health_raw | e }}</pre>{% endcall %}
+{% call expand('etcdctl endpoint status (raw)') %}<pre>{{ etcdctl_status_raw | e }}</pre>{% endcall %}
+{{ checklist(etcd_manual_checklist) }}
+
+<h2>4. Node / MachineConfigPool render matrix</h2>
+{% call expand('Nodes (' ~ (node_mcp_matrix_report | length) ~ ')' ~ counts(node_mcp_matrix_report)) %}
+<table><tbody>
+<tr><th>Node</th><th>Roles</th><th>Ready</th><th>Pool</th><th>Node current</th><th>Node desired</th><th>Pool rendered</th><th>Status</th></tr>
+{% for n in node_mcp_matrix_report %}
+<tr><td>{{ n.node | e }}</td><td>{{ n.roles | join(',') | e }}</td><td>{{ n.ready | e }}</td><td>{{ n.pool | e }}</td><td><code>{{ n.node_current_config | e }}</code></td><td><code>{{ n.node_desired_config | e }}</code></td><td><code>{{ n.pool_rendered_config | e }}</code></td><td>{{ lozenge(n.severity, n.status) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+
+<h2>5. ClusterOperators</h2>
+{% call expand('ClusterOperators (' ~ (co_report_data | length) ~ ')' ~ counts(co_report_data)) %}
+<table><tbody>
+<tr><th>Operator</th><th>Version</th><th>Available</th><th>Progressing</th><th>Degraded</th><th>Upgradeable</th><th>Status</th></tr>
+{% for co in co_report_data %}
+<tr><td>{{ co.name | e }}</td><td>{{ co.version | e }}</td><td>{{ co.available | e }}</td><td>{{ co.progressing | e }}</td><td>{{ co.degraded | e }}</td><td>{{ co.upgradeable | e }}</td><td>{{ lozenge(co.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+
+<h2>6. MachineConfigPools</h2>
+<table><tbody>
+<tr><th>Pool</th><th>Machines</th><th>Ready</th><th>Updated</th><th>Unavailable</th><th>Degraded</th><th>Status</th></tr>
+{% for p in mcp_report_data %}
+<tr><td>{{ p.name | e }}</td><td>{{ p.machine_count | e }}</td><td>{{ p.ready_machine_count | e }}</td><td>{{ p.updated_machine_count | e }}</td><td>{{ p.unavailable_machine_count | e }}</td><td>{{ p.degraded_machine_count | e }}</td><td>{{ lozenge(p.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+
+<h2>7. MachineSets vs Machines</h2>
+{% if machineset_report_data | length == 0 %}
+<p><em>No MachineSets found (not applicable on this platform, e.g. UPI/bare-metal).</em></p>
+{% else %}
+<table><tbody>
+<tr><th>MachineSet</th><th>Desired</th><th>Current</th><th>Ready</th><th>Available</th><th>Actual machines</th><th>Status</th></tr>
+{% for m in machineset_report_data %}
+<tr><td>{{ m.name | e }}</td><td>{{ m.desired | e }}</td><td>{{ m.current | e }}</td><td>{{ m.ready | e }}</td><td>{{ m.available | e }}</td><td>{{ m.actual_machine_count | e }}</td><td>{{ lozenge(m.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+
+<h2>8. Deprecated / removed API usage per namespace</h2>
+{% if deprecated_api_data.namespace_matrix | length == 0 %}
+<p><em>No usage of APIs flagged with <code>status.removedInRelease</code> was observed in the last 24h.</em></p>
+{% else %}
+{% if deprecated_api_data.target_k8s_minor %}
+<p><em>Target Kubernetes minor for <code>{{ upgrade_target_version | e }}</code>: <strong>{{ deprecated_api_data.target_k8s_minor | e }}</strong> (CRITICAL = removed at or before this version).</em></p>
+{% endif %}
+<table><tbody>
+<tr><th>Namespace</th><th>Resource</th><th>Removed in k8s</th><th>Requests/24h</th><th>Verbs</th><th>Callers</th><th>Severity</th></tr>
+{% for ns in deprecated_api_data.namespace_matrix %}{% for r in ns.resources %}
+<tr><td>{{ ns.namespace | e }}</td><td>{{ r.resource | e }}</td><td>{{ r.removedInRelease | e }}</td><td>{{ r.requestCount | e }}</td><td>{{ r.verbs | join(',') | e }}</td><td>{{ r.principals | join(', ') | e }}</td><td>{{ lozenge(r.severity) }}</td></tr>
+{% endfor %}{% endfor %}
+</tbody></table>
+{% endif %}
+
+<h2>9. Resources stuck Terminating on a finalizer</h2>
+<p><em>Objects with a <code>deletionTimestamp</code> set but finalizers still attached - deletion was requested but something never finished cleaning up. Only flagged CRITICAL once stuck for at least {{ finalizer_scan_stuck_after_seconds | e }}s; briefly deleting is normal and not shown here.</em></p>
+{% if finalizer_scan_include_crs %}
+<p><em>Dynamic CRD scan: {{ finalizer_stuck_data.crds_scanned | e }} CustomResourceDefinition kind(s) checked ({{ finalizer_stuck_data.crds_failed | e }} could not be listed and were skipped), plus Namespaces/PersistentVolumes/PersistentVolumeClaims.</em></p>
+{% else %}
+<p><em>Dynamic CRD scan was skipped (<code>finalizer_scan_include_crs=false</code>) - only Namespaces/PersistentVolumes/PersistentVolumeClaims were checked.</em></p>
+{% endif %}
+{% if finalizer_stuck_data.excluded_namespaces | default([]) | length > 0 %}
+<p><em>Namespaces excluded (<code>finalizer_scan_exclude_namespaces</code>): {{ finalizer_stuck_data.excluded_namespaces | join(', ') | e }} - {{ finalizer_stuck_data.excluded | e }} object(s) being deleted there were not reported. Cluster-scoped objects are always checked.</em></p>
+{% endif %}
+{% set stuck_rows = finalizer_stuck_data.rows | selectattr('severity', 'equalto', 'CRITICAL') | list %}
+{% if stuck_rows | length == 0 %}
+<p><em>No resources found stuck Terminating.</em></p>
+{% else %}
+{% call expand('Stuck resources (' ~ (stuck_rows | length) ~ ')' ~ counts(stuck_rows)) %}
+<table><tbody>
+<tr><th>Kind</th><th>Namespace/Name</th><th>Terminating for</th><th>Finalizers</th><th>CRD</th></tr>
+{% for r in stuck_rows %}
+<tr><td>{{ r.kind | e }}</td><td>{{ (((r.namespace ~ '/') if r.namespace else '') ~ r.name) | e }}</td><td>{{ lozenge('CRITICAL') }} {{ r.age_human | e }}</td><td>{{ r.finalizers | join(', ') | e }}</td><td>{{ r.crd | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+{% endif %}
+
+<h2>10. Portworx</h2>
+{% if not portworx_enabled %}
+<p><em>Portworx checks skipped (portworx_enabled=false).</em></p>
+{% elif px_storagecluster_list | length == 0 %}
+<p><em>No StorageCluster CR found in namespace <code>{{ portworx_namespace | e }}</code>.</em></p>
+{% else %}
+<table><tbody>
+<tr><th>StorageCluster</th><td>{{ px_sc_name | e }}</td></tr>
+<tr><th>Phase</th><td>{{ px_sc_phase | e }}</td></tr>
+<tr><th>Image</th><td><code>{{ px_image | e }}</code></td></tr>
+<tr><th>StorageNodes</th><td>{{ px_storagenodes | length | string }} reporting</td></tr>
+</tbody></table>
+{% call expand('StorageNodes (' ~ (px_storagenodes | length) ~ ')') %}
+<table><tbody>
+<tr><th>StorageNode</th><th>Status</th></tr>
+{% for sn in px_storagenodes %}
+<tr><td>{{ sn.metadata.name | e }}</td><td>{{ sn.status.phase | default(sn.status.status) | default('Unknown') | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+{% call expand('pxctl status (raw, best-effort)') %}<pre>{{ pxctl_status_output | e }}</pre>{% endcall %}
+{% call expand('pxctl license list (raw, best-effort)') %}<pre>{{ pxctl_license_output | e }}</pre>{% endcall %}
+{{ checklist(portworx_manual_checklist) }}
+{% endif %}
+
+<h2>11. OpenShift Virtualization (CNV/KubeVirt)</h2>
+{% if not cnv_enabled %}
+<p><em>OpenShift Virtualization checks skipped (cnv_enabled=false).</em></p>
+{% elif cnv_hco_list | length == 0 %}
+<p><em>No HyperConverged CR found in namespace <code>{{ cnv_namespace | e }}</code>.</em></p>
+{% else %}
+<h3>Component health</h3>
+{% call expand('Components (' ~ (cnv_component_report | length) ~ ')' ~ counts(cnv_component_report)) %}
+<table><tbody>
+<tr><th>Component</th><th>Version</th><th>Available</th><th>Progressing</th><th>Degraded</th><th>Upgradeable</th><th>Status</th></tr>
+{% for c in cnv_component_report %}
+<tr><td>{{ c.name | e }}</td><td>{{ c.version | e }}</td><td>{{ c.available | e }}</td><td>{{ c.progressing | e }}</td><td>{{ c.degraded | e }}</td><td>{{ c.upgradeable | e }}</td><td>{{ lozenge(c.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+<p><em>Outdated VMI workloads (still on an old virt-launcher): <strong>{{ kv_outdated_count | e }}</strong> · workloadUpdateMethods: <code>{{ kv_update_methods | e }}</code></em></p>
+<h3>VM node-drain readiness</h3>
+<p><em>Every <code>Running</code> VirtualMachineInstance, checked against its <code>LiveMigratable</code> condition, <code>evictionStrategy</code>, and whether it has a CD-ROM/ISO disk attached (a known cause of migrations stalling even when reported migratable).</em></p>
+{% if vmi_migration_report_data | length == 0 %}
+<p><em>No VirtualMachineInstances found.</em></p>
+{% else %}
+{% call expand('VirtualMachineInstances (' ~ (vmi_migration_report_data | length) ~ ')' ~ counts(vmi_migration_report_data)) %}
+<table><tbody>
+<tr><th>Namespace/Name</th><th>Node</th><th>Phase</th><th>Eviction strategy</th><th>Live migratable</th><th>CD-ROM disks</th><th>Status</th></tr>
+{% for v in vmi_migration_report_data %}
+<tr><td>{{ (v.namespace ~ '/' ~ v.name) | e }}</td><td>{{ v.node | e }}</td><td>{{ v.phase | e }}</td><td>{{ v.eviction_strategy | e }}</td><td>{{ v.live_migratable | e }}</td><td>{{ v.cdrom_disks | join(',') | e }}</td><td>{{ lozenge(v.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+{% set vmi_flagged = vmi_migration_report_data | selectattr('severity', 'in', ['CRITICAL', 'WARNING']) | list %}
+{% if vmi_flagged | length > 0 %}
+{% call expand('Why VMs were flagged (' ~ (vmi_flagged | length) ~ ')' ~ counts(vmi_flagged)) %}
+<ul>
+{% for v in vmi_flagged %}<li>{{ lozenge(v.severity) }} <strong>{{ (v.namespace ~ '/' ~ v.name) | e }}</strong>: {{ v.reasons | join('; ') | e }}</li>
+{% endfor %}</ul>
+{% endcall %}
+{% endif %}
+{% endif %}
+{{ checklist(cnv_manual_checklist) }}
+{% endif %}
+
+<h2>12. Advanced Cluster Management (ACM)</h2>
+{% if not acm_enabled %}
+<p><em>ACM checks skipped (acm_enabled=false).</em></p>
+{% elif not acm_crds_present %}
+<p><em>ACM CRDs not found on this cluster - this doesn't look like an ACM hub.</em></p>
+{% else %}
+<h3>Hub health</h3>
+<table><tbody>
+<tr><th>MultiClusterHub</th><th>Namespace</th><th>Version</th><th>Phase</th><th>Status</th></tr>
+{% for m in acm_mch_report %}
+<tr><td>{{ m.name | e }}</td><td>{{ m.namespace | e }}</td><td>{{ m.version | e }}</td><td>{{ m.phase | e }}</td><td>{{ lozenge(m.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% for m in acm_mch_report if m.severity != 'OK' and m.message %}
+<p><em><strong>{{ m.name | e }}</strong>: {{ m.message | e }}</em></p>
+{% endfor %}
+<h3>Managed cluster inventory</h3>
+<p><em>{{ acm_managed_clusters_report | length | string }} managed cluster(s) known to this hub.</em></p>
+<table><tbody>
+<tr><th>Cluster</th><th>Available</th><th>Accepted</th><th>Joined</th><th>OpenShift version</th><th>K8s version</th><th>Cloud</th><th>Status</th></tr>
+{% for c in acm_managed_clusters_report %}
+<tr><td>{{ c.name | e }}</td><td>{{ c.available_status | e }}</td><td>{{ c.accepted | e }}</td><td>{{ c.joined | e }}</td><td>{{ c.openshift_version | e }}</td><td>{{ c.kubernetes_version | e }}</td><td>{{ c.cloud | e }}</td><td>{{ lozenge(c.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% set sz = acm_sizing_data | default({}) %}
+{% if sz.components is defined %}
+<h3>Hub sizing</h3>
+<p><em>ACM {{ (sz.acm_version or 'version unknown') | e }} managing <strong>{{ sz.managed_clusters | e }}</strong> cluster(s).
+{% if sz.supports %}Measured storage supports about <strong>{{ sz.supports.clusters | e }}</strong> managed clusters at {{ sz.max_fill_pct | e }}% fill, limited by {{ sz.supports.limited_by | e }}.
+{% else %}No usage could be measured, so the recommendations below use Red Hat's published rules and defaults only.{% endif %}
+Red Hat publishes no sizing table for N managed clusters; each number below shows its basis.
+Hub workers: {{ sz.hub_nodes.workers | e }} node(s), {{ sz.hub_nodes.cpu | e }} CPU / {{ sz.hub_nodes.memory_gib | e }} GiB allocatable (Red Hat publishes no CPU/memory figure per cluster count).</em></p>
+{% call expand('Current storage (' ~ (sz.components | selectattr('enabled') | list | length) ~ ' components in use)') %}
+<table><tbody>
+<tr><th>Component</th><th>PVCs</th><th>Size each</th><th>Used (max)</th><th>Fill</th><th>Per cluster</th><th>Supports</th><th>Basis</th></tr>
+{% for c in sz.components %}
+<tr><td>{{ (c.label ~ ('' if c.enabled else ' (not in use)')) | e }}{% if c.note %}<br /><em>{{ c.note | e }}</em>{% endif %}</td>
+<td>{{ c.replicas | e }}</td>
+<td>{{ ((c.capacity_gib ~ ' GiB') if c.capacity_gib is not none else '-') | e }}</td>
+<td>{{ ((c.used_gib ~ ' GiB') if c.used_gib is not none else '-') | e }}</td>
+<td>{% if c.fill_pct is not none %}{{ lozenge('WARNING' if c.fill_pct > sz.max_fill_pct else 'OK') }} {{ (c.fill_pct ~ '%') | e }}{% else %}-{% endif %}</td>
+<td>{{ ((c.per_cluster_gib ~ ' GiB') if c.per_cluster_gib is not none else '-') | e }}</td>
+<td>{{ (('~' ~ c.supports ~ ' clusters') if c.supports is not none else '-') | e }}</td>
+<td><em>{{ c.basis | e }}</em></td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+{% call expand('Recommended size per PVC by managed clusters (GiB, ' ~ sz.max_fill_pct ~ '% max fill)') %}
+<table><tbody>
+<tr><th>Component</th><th>Now</th>{% for t in sz.tiers %}<th>{{ t | e }} clusters</th>{% endfor %}<th>Basis</th></tr>
+{% for c in sz.components %}
+<tr><td>{{ (c.label ~ ('' if c.enabled else ' (if enabled)')) | e }}</td>
+<td>{{ (c.capacity_gib if c.capacity_gib is not none else '-') | e }}</td>
+{% for r in c.recommended %}<td>{% if r.gib is none %}-{% elif c.capacity_gib is not none and r.gib > c.capacity_gib %}<strong>{{ r.gib | e }}</strong>{% else %}{{ r.gib | e }}{% endif %}</td>{% endfor %}
+<td><em>{{ (c.recommended | first | default({})).basis | default('') | e }}</em></td></tr>
+{% endfor %}
+</tbody></table>
+<p><em>Bold = larger than the PVC is today. Sizes are per PVC; replicated components (e.g. thanos-receive x3) need that size for each replica. Observability also needs object storage, which isn't sized here.</em></p>
+{% endcall %}
+{% endif %}
+{% if not acm_cascade_enabled %}
+<p><em>Cascade run skipped (acm_cascade_enabled=false) - inventory/health only above. Set acm_cascade_enabled=true to run the full check against every managed cluster and generate a separate report for each.</em></p>
+{% else %}
+<h3>Cascade: credential resolution</h3>
+<p><em>Which clusters the cascade could actually authenticate to, and how - see README.md's ACM section for the credential model (Hive admin-kubeconfig secret, or a ManagedServiceAccount token).</em></p>
+<table><tbody>
+<tr><th>Cluster</th><th>Checked</th><th>Method</th><th>Reason</th></tr>
+{% for t in acm_cascade_targets %}
+<tr><td>{{ t.name | e }}</td><td>{{ t.checked | e }}</td><td>{{ t.auth_method | default('-', true) | e }}</td><td>{{ t.reason | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+<h3>Cascade: per-cluster results</h3>
+{% if acm_cascade_results | length == 0 %}
+<p><em>No clusters had resolvable credentials - nothing was cascaded. See the credential-resolution table above.</em></p>
+{% else %}
+<table><tbody>
+<tr><th>Cluster</th><th>Overall status</th><th>Critical</th><th>Warning</th><th>Info</th><th>Report</th></tr>
+{% for r in acm_cascade_results %}
+<tr><td>{{ r.cluster_name | e }}</td><td>{{ lozenge(r.overall_status) }}</td><td>{{ r.critical_count | e }}</td><td>{{ r.warning_count | e }}</td><td>{{ r.info_count | e }}</td><td><code>{{ r.report_basename | e }}.html</code></td></tr>
+{% endfor %}
+</tbody></table>
+{% for r in acm_cascade_results if r.note is defined %}
+<p><em><strong>{{ r.cluster_name | e }}</strong>: {{ r.note | e }}</em></p>
+{% endfor %}
+<p><em>Per-cluster reports (.md/.html/.summary.html) are written to <code>{{ acm_cascade_report_dir | e }}/</code>.</em></p>
+{% endif %}
+{% endif %}
+{% endif %}
+
+<h2>13. OpenShift Data Foundation (ODF)</h2>
+{% if not odf_enabled %}
+<p><em>ODF checks skipped (odf_enabled=false).</em></p>
+{% elif odf_storagecluster_list | length == 0 %}
+<p><em>No StorageCluster CR found in namespace <code>{{ odf_namespace | e }}</code>.</em></p>
+{% else %}
+<table><tbody>
+<tr><th>StorageCluster</th><td>{{ odf_sc_name | e }}</td></tr>
+<tr><th>OSD pods</th><td>{{ odf_osd_pods | length | string }} reporting</td></tr>
+</tbody></table>
+<table><tbody>
+<tr><th>Component</th><th>Available</th><th>Progressing</th><th>Degraded</th><th>Upgradeable</th><th>Status</th></tr>
+{% for c in odf_component_report %}
+<tr><td>{{ c.name | e }}</td><td>{{ c.available | e }}</td><td>{{ c.progressing | e }}</td><td>{{ c.degraded | e }}</td><td>{{ c.upgradeable | e }}</td><td>{{ lozenge(c.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% for c in odf_component_report if c.severity != 'OK' and c.messages | length > 0 %}
+<p><em><strong>{{ c.name | e }}</strong>: {{ c.messages | join(' | ') | e }}</em></p>
+{% endfor %}
+<h3>CephCluster</h3>
+{% if odf_cephcluster_list | length == 0 %}
+<p><em>No CephCluster CR found in namespace <code>{{ odf_namespace | e }}</code>.</em></p>
+{% else %}
+<table><tbody>
+<tr><th>CephCluster</th><th>Phase</th><th>Ceph health</th><th>Status</th></tr>
+{% for c in odf_cephcluster_report %}
+<tr><td>{{ c.name | e }}</td><td>{{ c.phase | e }}</td><td>{{ c.ceph_health | e }}</td><td>{{ lozenge(c.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% for c in odf_cephcluster_report if c.severity != 'OK' and c.messages | length > 0 %}
+<p><em><strong>{{ c.name | e }}</strong>: {{ c.messages | join(' | ') | e }}</em></p>
+{% endfor %}
+{% endif %}
+<h3>OSD pods</h3>
+<table><tbody>
+<tr><th>OSD pod</th><th>Node</th><th>Phase</th></tr>
+{% for p in odf_osd_pods %}
+<tr><td>{{ p.metadata.name | e }}</td><td>{{ p.spec.nodeName | default('?') | e }}</td><td>{{ p.status.phase | default('Unknown') | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+<h3>Ceph cluster health</h3>
+{% set cs = ceph_status_report_data %}
+{% if cs.parsed | default(false) %}
+<table><tbody>
+<tr><th>Overall</th><td><code>{{ cs.overall_status | e }}</code> {{ lozenge(cs.overall_severity) }}</td></tr>
+<tr><th>OSDs</th><td>{{ (cs.osdmap.num_up_osds ~ '/' ~ cs.osdmap.num_osds ~ ' up, ' ~ cs.osdmap.num_in_osds ~ '/' ~ cs.osdmap.num_osds ~ ' in') | e }}</td></tr>
+<tr><th>PGs</th><td>{{ (cs.pgmap.num_pgs ~ ' across ' ~ cs.pgmap.num_pools ~ ' pool(s), ' ~ cs.pgmap.pct_used ~ '% used') | e }}</td></tr>
+<tr><th>Mon quorum</th><td>{{ (cs.mon.quorum_count ~ ' member(s) (' ~ (cs.mon.quorum_names | join(', ')) ~ ')') | e }}</td></tr>
+</tbody></table>
+{% if cs.checks | length > 0 %}
+<table><tbody>
+<tr><th>Health check</th><th>Status</th><th>Message</th></tr>
+{% for chk in cs.checks %}
+<tr><td>{{ (chk.name ~ (' (muted)' if chk.muted else '')) | e }}</td><td>{{ lozenge(chk.severity) }}</td><td>{{ chk.message | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+{% else %}
+<p><em><code>ceph status -f json</code> was not captured or could not be parsed - see the raw output below.</em></p>
+{% endif %}
+{% call expand('ceph status (raw, best-effort)') %}<pre>{{ ceph_status_output | e }}</pre>{% endcall %}
+{% call expand('ceph osd status (raw, best-effort)') %}<pre>{{ ceph_osd_status_output | e }}</pre>{% endcall %}
+{% call expand('ceph df (raw, best-effort)') %}<pre>{{ ceph_df_output | e }}</pre>{% endcall %}
+{% call expand('ceph health detail (raw, best-effort)') %}<pre>{{ ceph_health_detail_output | e }}</pre>{% endcall %}
+{{ checklist(odf_manual_checklist) }}
+{% endif %}
+
+<h2>14. Catalog mirror (IDMS/ICSP/ITMS)</h2>
+{% set cm = catalog_mirror_data | default({}) %}
+{% if cm.mirror_configured is not defined %}
+<p><em>Catalog mirror check did not run in this play (a <code>--tags</code> subset without <code>catalog_mirror</code>).</em></p>
+{% else %}
+<table><tbody>
+<tr><th>Cluster type</th><td>{% if cm.mirror_configured %}mirrored - {% for ms in cm.mirror_sets %}{{ ms.kind | e }} <code>{{ ms.name | e }}</code>{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}connected (no IDMS/ICSP/ITMS - default catalogs expected; nothing flagged){% endif %}</td></tr>
+<tr><th>Mirror hosts</th><td>{{ (cm.mirror_hosts | join(', ') if cm.mirror_hosts else '-') | e }}</td></tr>
+<tr><th>disableAllDefaultSources</th><td><code>{{ cm.disable_all_default_sources | e }}</code></td></tr>
+</tbody></table>
+{% for n in cm.notes %}<p><em>{{ n | e }}</em></p>
+{% endfor %}
+{% if cm.mirror_sets | length > 0 %}
+<h3>Mirror sets</h3>
+<table><tbody>
+<tr><th>Mirror set</th><th>Source</th><th>Mirrors</th><th>mirrorSourcePolicy</th></tr>
+{% for ms in cm.mirror_sets %}{% for e in ms.entries %}
+<tr><td>{{ (ms.short ~ '/' ~ ms.name) | e }}</td><td><code>{{ e.source | e }}</code></td><td>{{ e.mirrors | join(', ') | e }}</td><td>{{ e.policy | e }}</td></tr>
+{% endfor %}{% endfor %}
+</tbody></table>
+<h3>Catalog index pull paths</h3>
+<table><tbody>
+<tr><th>CatalogSource</th><th>Index image</th><th>Ref</th><th>Pulled from</th></tr>
+{% for r in cm.catalog_pull_paths %}
+<tr><td>{{ (r.namespace ~ '/' ~ r.name ~ (' (default)' if r.default else '')) | e }}</td><td>{{ r.image | e }}</td><td>{{ r.ref_type | e }}</td><td>{% if r.path == 'mirror-host' %}mirror host{% elif r.path != 'source' %}{{ ('mirror via ' ~ r.via ~ ' (' ~ r.policy ~ ')') | e }}{% else %}{{ lozenge('WARNING') }} source registry (not redirected){% endif %}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+<table><tbody>
+<tr><th>Default CatalogSource</th><th>Present</th><th>Disabled in OperatorHub</th><th>Image</th></tr>
+{% for d in cm.default_sources %}
+<tr><td>{{ d.name | e }}</td><td>{% if d.present and cm.mirror_configured %}{{ lozenge('CRITICAL') }} yes{% else %}{{ 'yes' if d.present else 'no' }}{% endif %}</td><td>{{ 'yes' if d.disabled else 'no' }}</td><td>{{ (d.image or '-') | e }}</td></tr>
+{% endfor %}
+</tbody></table>
+<h3>Operator InstallPlan catalogs</h3>
+{% if cm.operators | length == 0 %}
+<p><em>No OLM Subscriptions found.</em></p>
+{% else %}
+{% call expand('Operators (' ~ (cm.operators | length) ~ ')' ~ counts(cm.operators)) %}
+<table><tbody>
+<tr><th>Operator</th><th>Namespace</th><th>Subscription source</th><th>InstallPlan</th><th>InstallPlan catalog</th><th>Catalog kind</th><th>Status</th></tr>
+{% for o in cm.operators %}
+<tr><td>{{ o.package | e }}</td><td>{{ o.namespace | e }}</td><td>{{ o.subscription_source | e }}</td><td>{{ (o.installplan or '-') | e }}</td><td>{{ (o.installplan_catalog or '-') | e }}</td><td>{{ o.installplan_catalog_kind | e }}</td><td>{{ lozenge(o.severity) }}</td></tr>
+{% endfor %}
+</tbody></table>
+{% endcall %}
+{% set op_notes = cm.operators | selectattr('message') | list %}
+{% if op_notes | length > 0 %}
+{% call expand('Operator notes (' ~ (op_notes | length) ~ ')' ~ counts(op_notes)) %}
+<ul>
+{% for o in op_notes %}<li>{{ lozenge(o.severity) }} <strong>{{ o.package | e }}</strong> ({{ o.namespace | e }}): {{ o.message | e }}</li>
+{% endfor %}</ul>
+{% endcall %}
+{% endif %}
+{% endif %}
 {% endif %}
 {% if confluence_attach_reports | default(true) | bool %}
-<h2>Full reports</h2>
+
+<h2>Attached reports</h2>
 <ul>
-<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.html" /></ac:link> - full report (open in a browser)</li>
+<li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.html" /></ac:link> - the same report as one HTML file (open in a browser)</li>
 <li><ac:link><ri:attachment ri:filename="{{ confluence_attachment_basename | e }}.md" /></ac:link> - Markdown, git-friendly</li>
 </ul>
 {% endif %}
+{% endfilter %}
